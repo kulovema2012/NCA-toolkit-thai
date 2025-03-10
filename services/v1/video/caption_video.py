@@ -226,48 +226,45 @@ def determine_alignment_code(position_str, alignment_str, x, y, video_width, vid
     logger.info(f"[determine_alignment_code] Computed final_x={final_x}, final_y={final_y}, an_code={an_code}")
     return an_code, True, int(final_x), int(final_y)
 
-def create_style_line(style_options, video_resolution):
+def generate_ass_style(style_name, style_options):
     """
     Create the style line for ASS subtitles.
     """
+    # Get font family or default to Arial
     font_family = style_options.get('font_family', 'Arial')
-    available_fonts = get_available_fonts()
-    if font_family not in available_fonts:
-        logger.warning(f"Font '{font_family}' not found.")
-        return {'error': f"Font '{font_family}' not available.", 'available_fonts': available_fonts}
-
-    line_color = rgb_to_ass_color(style_options.get('line_color', '#FFFFFF'))
-    secondary_color = line_color
+    
+    # Get font size or default to 48
+    font_size = style_options.get('font_size', 48)
+    
+    # Get colors
+    primary_color = rgb_to_ass_color(style_options.get('line_color', '#FFFFFF'))
+    secondary_color = rgb_to_ass_color(style_options.get('word_color', '#FFFF00'))
     outline_color = rgb_to_ass_color(style_options.get('outline_color', '#000000'))
-    box_color = rgb_to_ass_color(style_options.get('box_color', '#000000'))
-
-    font_size = style_options.get('font_size', int(video_resolution[1] * 0.05))
-    bold = '1' if style_options.get('bold', False) else '0'
-    italic = '1' if style_options.get('italic', False) else '0'
-    underline = '1' if style_options.get('underline', False) else '0'
-    strikeout = '1' if style_options.get('strikeout', False) else '0'
-    scale_x = style_options.get('scale_x', '100')
-    scale_y = style_options.get('scale_y', '100')
-    spacing = style_options.get('spacing', '0')
-    angle = style_options.get('angle', '0')
-    border_style = style_options.get('border_style', '1')
-    outline_width = style_options.get('outline_width', '2')
-    shadow_offset = style_options.get('shadow_offset', '0')
-
-    margin_l = style_options.get('margin_l', '20')
-    margin_r = style_options.get('margin_r', '20')
-    margin_v = style_options.get('margin_v', '20')
-
-    # Default alignment in style (we override per event)
-    alignment = 5
-
-    style_line = (
-        f"Style: Default,{font_family},{font_size},{line_color},{secondary_color},"
-        f"{outline_color},{box_color},{bold},{italic},{underline},{strikeout},"
-        f"{scale_x},{scale_y},{spacing},{angle},{border_style},{outline_width},"
-        f"{shadow_offset},{alignment},{margin_l},{margin_r},{margin_v},0"
-    )
-    logger.info(f"Created ASS style line: {style_line}")
+    
+    # Get outline width or default to 2
+    outline = style_options.get('outline_width', 2)
+    
+    # Get shadow offset or default to 1
+    shadow = style_options.get('shadow_offset', 1)
+    
+    # Get bold, italic, underline, strikeout flags
+    bold = -1 if style_options.get('bold', False) else 0
+    italic = -1 if style_options.get('italic', False) else 0
+    underline = -1 if style_options.get('underline', False) else 0
+    strikeout = -1 if style_options.get('strikeout', False) else 0
+    
+    # Add background box by setting the BackColour and BorderStyle
+    back_color = "&H80000000"  # Semi-transparent black background
+    border_style = 4  # Opaque box
+    
+    # Create the style line
+    style_line = f"Style: {style_name},"\
+                f"{font_family},{font_size},"\
+                f"{primary_color},{secondary_color},{outline_color},{back_color},"\
+                f"{bold},{italic},{underline},{strikeout},"\
+                f"{outline},{shadow},{border_style},"\
+                f"1,0,0,0,100,100,0,0"
+    
     return style_line
 
 def generate_ass_header(style_options, video_resolution):
@@ -283,7 +280,7 @@ ScaledBorderAndShadow: yes
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 """
-    style_line = create_style_line(style_options, video_resolution)
+    style_line = generate_ass_style('Default', style_options)
     if isinstance(style_line, dict) and 'error' in style_line:
         # Font-related error
         return style_line
