@@ -9,7 +9,7 @@ env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   SERVICE_NAME: no-code-architects-toolkit
   REGION: asia-southeast1
-  IMAGE: asia-southeast1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.SERVICE_NAME }}/image:${{ github.sha }}
+  IMAGE: asia-southeast1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/no-code-architects-toolkit/image:${{ github.sha }}
 
 jobs:
   deploy:
@@ -28,10 +28,10 @@ jobs:
     - name: Build and Push Container
       run: |
         # Create repository if it doesn't exist (may fail if no permission, but that's okay if it already exists)
-        gcloud artifacts repositories create ${{ env.SERVICE_NAME }} \
+        gcloud artifacts repositories create no-code-architects-toolkit \
           --repository-format=docker \
           --location=${{ env.REGION }} \
-          --description="Repository for ${{ env.SERVICE_NAME }}" || true
+          --description="Repository for no-code-architects-toolkit" || true
           
         # Configure Docker to use gcloud as a credential helper
         gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
