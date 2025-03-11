@@ -33,36 +33,6 @@ jobs:
         project_id: ${{ secrets.GCP_PROJECT_ID }}
         install_components: 'gke-gcloud-auth-plugin'
         
-    - name: Authorize Docker push
+    - name: Build and Deploy using Cloud Build
       run: |
-        gcloud auth configure-docker
-        gcloud auth configure-docker asia-southeast1-docker.pkg.dev
-      
-    - name: Build and push Docker image
-      run: |
-        docker build -t asia-southeast1-docker.pkg.dev/$PROJECT_ID/$SERVICE_NAME:${{ github.sha }} .
-        docker push asia-southeast1-docker.pkg.dev/$PROJECT_ID/$SERVICE_NAME:${{ github.sha }}
-        
-    - name: Deploy to Cloud Run
-      id: deploy
-      uses: google-github-actions/deploy-cloudrun@v1
-      with:
-        service: ${{ env.SERVICE_NAME }}
-        image: asia-southeast1-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.SERVICE_NAME }}:${{ github.sha }}
-        region: ${{ env.REGION }}
-        flags: >
-          --allow-unauthenticated
-          --memory=16Gi
-          --cpu=4
-          --cpu-boost
-          --min-instances=0
-          --max-instances=5
-          --platform=managed
-          --timeout=300s
-        env_vars: |
-          API_KEY=${{ secrets.API_KEY }}
-          GCP_BUCKET_NAME=${{ secrets.GCP_BUCKET_NAME }}
-          GCP_SA_CREDENTIALS=${{ secrets.GCP_SA_KEY }}
-        
-    - name: Show Output
-      run: echo ${{ steps.deploy.outputs.url }}
+        gcloud builds submit --config cloudbuild.yaml .

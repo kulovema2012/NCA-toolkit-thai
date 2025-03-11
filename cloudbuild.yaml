@@ -1,0 +1,38 @@
+steps:
+  # Build the container image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', '$REGION-docker.pkg.dev/$PROJECT_ID/$SERVICE_NAME:$COMMIT_SHA', '.']
+
+  # Push the container image to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '$REGION-docker.pkg.dev/$PROJECT_ID/$SERVICE_NAME:$COMMIT_SHA']
+
+  # Deploy container image to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - '$SERVICE_NAME'
+      - '--image=$REGION-docker.pkg.dev/$PROJECT_ID/$SERVICE_NAME:$COMMIT_SHA'
+      - '--region=$REGION'
+      - '--platform=managed'
+      - '--allow-unauthenticated'
+      - '--memory=16Gi'
+      - '--cpu=4'
+      - '--cpu-boost'
+      - '--min-instances=0'
+      - '--max-instances=5'
+      - '--timeout=300s'
+      - '--set-env-vars=API_KEY=${_API_KEY},GCP_BUCKET_NAME=${_GCP_BUCKET_NAME}'
+
+substitutions:
+  _API_KEY: ${_API_KEY}
+  _GCP_BUCKET_NAME: ${_GCP_BUCKET_NAME}
+  _GCP_SA_KEY: ${_GCP_SA_KEY}
+  REGION: asia-southeast1
+  SERVICE_NAME: no-code-architects-toolkit
+  COMMIT_SHA: ${COMMIT_SHA}
+
+options:
+  logging: CLOUD_LOGGING_ONLY
