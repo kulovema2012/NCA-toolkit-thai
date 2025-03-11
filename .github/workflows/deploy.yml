@@ -9,6 +9,7 @@ env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   SERVICE_NAME: no-code-architects-toolkit
   REGION: asia-southeast1
+  IMAGE: asia-southeast1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.SERVICE_NAME }}/image:${{ github.sha }}
 
 jobs:
   deploy:
@@ -21,12 +22,30 @@ jobs:
       with:
         credentials_json: ${{ secrets.GH_ACTIONS_SA_KEY }}
 
+    - name: Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v1
+
+    - name: Build and Push Container
+      run: |
+        # Create repository if it doesn't exist (may fail if no permission, but that's okay if it already exists)
+        gcloud artifacts repositories create ${{ env.SERVICE_NAME }} \
+          --repository-format=docker \
+          --location=${{ env.REGION }} \
+          --description="Repository for ${{ env.SERVICE_NAME }}" || true
+          
+        # Configure Docker to use gcloud as a credential helper
+        gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
+        
+        # Build and push the container
+        docker build -t ${{ env.IMAGE }} .
+        docker push ${{ env.IMAGE }}
+
     - id: deploy
       name: Deploy to Cloud Run
       uses: google-github-actions/deploy-cloudrun@v1
       with:
         service: ${{ env.SERVICE_NAME }}
-        source: ./
+        image: ${{ env.IMAGE }}
         region: ${{ env.REGION }}
         flags: >
           --allow-unauthenticated
@@ -38,7 +57,9 @@ jobs:
           --timeout=300s
         env_vars: >-
           API_KEY=${{ secrets.API_KEY }},
-          GCP_BUCKET_NAME=${{ secrets.GCP_BUCKET_NAME }}
+          GCP_BUCKET_NAME=${{ secrets.GCP_BUCKET_NAME }},
+          STORAGE_PATH=GCP,
+          GCP_SA_CREDENTIALS=${{ secrets.GCP_SA_KEY }}
 
     - name: Show Output
       run: echo ${{ steps.deploy.outputs.url }}
