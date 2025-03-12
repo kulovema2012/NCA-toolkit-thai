@@ -3,6 +3,10 @@ FROM python:3.9-slim
 
 # Install system dependencies, build tools, and libraries
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    fonts-noto-cjk \
+    fonts-noto-cjk-extra \
+    fonts-noto \
+    fonts-noto-extra \
     ca-certificates \
     wget \
     tar \
