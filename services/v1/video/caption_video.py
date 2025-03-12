@@ -610,10 +610,6 @@ def process_subtitle_events(transcription_result, style_type, settings, replace_
     return srt_to_ass(transcription_result, style_type, settings, replace_dict, video_resolution)
 
 def process_captioning_v1(video_url, captions, settings, replace, job_id, language='auto'):
-    """
-    Captioning process with transcription fallback and multiple styles.
-    Integrates with the updated logic for positioning and alignment.
-    """
     try:
         if not isinstance(settings, dict):
             logger.error(f"Job {job_id}: 'settings' should be a dictionary.")
@@ -734,18 +730,38 @@ def process_captioning_v1(video_url, captions, settings, replace, job_id, langua
 
         # Process video with subtitles using FFmpeg
         try:
-            ffmpeg.input(video_path).output(
-                output_path,
-                vf=f"subtitles='{subtitle_path}'",
-                acodec='copy'
-            ).run(overwrite_output=True)
+            # Escape special characters in the subtitle path for FFmpeg
+            escaped_subtitle_path = subtitle_path.replace('\\', '\\\\').replace(':', '\\:').replace('\'', '\\\'')
+            
+            if subtitle_type == 'ass':
+                # Use the ass filter which is more reliable for ASS subtitles
+                ffmpeg.input(video_path).output(
+                    output_path,
+                    vf=f"ass='{escaped_subtitle_path}'",
+                    acodec='copy'
+                ).run(overwrite_output=True, quiet=True)
+            else:
+                # Fallback to subtitles filter for SRT
+                ffmpeg.input(video_path).output(
+                    output_path,
+                    vf=f"subtitles='{escaped_subtitle_path}'",
+                    acodec='copy'
+                ).run(overwrite_output=True, quiet=True)
+                
             logger.info(f"Job {job_id}: FFmpeg processing completed. Output saved to {output_path}")
+            
+            # Upload the output file to cloud storage
+            try:
+                cloud_url = upload_file(output_path, f"captioned/{output_filename}")
+                logger.info(f"Job {job_id}: Uploaded captioned video to {cloud_url}")
+                return {"file_url": cloud_url}
+            except Exception as upload_error:
+                logger.error(f"Job {job_id}: Failed to upload captioned video: {str(upload_error)}")
+                return {"error": f"Failed to upload captioned video: {str(upload_error)}"}
         except ffmpeg.Error as e:
             stderr_output = e.stderr.decode('utf8') if e.stderr else 'Unknown error'
             logger.error(f"Job {job_id}: FFmpeg error: {stderr_output}")
             return {"error": f"FFmpeg error: {stderr_output}"}
-
-        return output_path
 
     except Exception as e:
         logger.error(f"Job {job_id}: Error in process_captioning_v1: {str(e)}", exc_info=True)
