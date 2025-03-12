@@ -752,7 +752,7 @@ def process_captioning_v1(video_url, captions, settings, replace, job_id, langua
             
             # Upload the output file to cloud storage
             try:
-                cloud_url = upload_file(output_path, f"captioned/{output_filename}")
+                cloud_url = upload_file(output_path)
                 logger.info(f"Job {job_id}: Uploaded captioned video to {cloud_url}")
                 return {"file_url": cloud_url}
             except Exception as upload_error:
