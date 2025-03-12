@@ -35,15 +35,15 @@ jobs:
         # Push the Docker image
         docker push gcr.io/${{ env.PROJECT_ID }}/${{ env.SERVICE_NAME }}:${{ github.sha }}
 
-        - name: Create env vars file
-        run: |
-          cat > .env.yaml << EOF
-          API_KEY: "${{ secrets.API_KEY }}"
-          GCP_BUCKET_NAME: "${{ secrets.GCP_BUCKET_NAME }}"
-          GCP_SA_CREDENTIALS: "${{ secrets.GH_ACTIONS_SA_KEY }}"
-          STORAGE_PATH: "GCP"
-          S3_BUCKET_NAME: ""
-          EOF
+    - name: Create env vars file
+      run: |
+        cat > .env.yaml << EOF
+        API_KEY: "${{ secrets.API_KEY }}"
+        GCP_BUCKET_NAME: "${{ secrets.GCP_BUCKET_NAME }}"
+        GCP_SA_CREDENTIALS: "${{ secrets.GH_ACTIONS_SA_KEY }}"
+        STORAGE_PATH: "GCP"
+        S3_BUCKET_NAME: ""
+        EOF
 
     - name: Deploy to Cloud Run
       id: deploy
