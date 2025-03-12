@@ -9,8 +9,6 @@ env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   SERVICE_NAME: no-code-architects-toolkit
   REGION: asia-southeast1
-  REPO_NAME: nca-toolkit-repo
-  IMAGE: asia-southeast1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/nca-toolkit-repo/image:${{ github.sha }}
 
 jobs:
   deploy:
@@ -26,41 +24,22 @@ jobs:
     - name: Set up Cloud SDK
       uses: google-github-actions/setup-gcloud@v1
 
-    - name: Build and Push Container
+    - name: Deploy to Cloud Run
+      id: deploy
       run: |
-        # Create repository if it doesn't exist (may fail if no permission, but that's okay if it already exists)
-        gcloud artifacts repositories create nca-toolkit-repo \
-          --repository-format=docker \
-          --location=${{ env.REGION }} \
-          --description="Repository for NCA Toolkit" || true
-          
-        # Configure Docker to use gcloud as a credential helper
-        gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
-        
-        # Build and push the container
-        docker build -t ${{ env.IMAGE }} .
-        docker push ${{ env.IMAGE }}
-
-    - id: deploy
-      name: Deploy to Cloud Run
-      uses: google-github-actions/deploy-cloudrun@v1
-      with:
-        service: ${{ env.SERVICE_NAME }}
-        image: ${{ env.IMAGE }}
-        region: ${{ env.REGION }}
-        flags: >
-          --allow-unauthenticated
-          --memory=16Gi
-          --cpu=4
-          --cpu-boost
-          --min-instances=0
-          --max-instances=5
-          --timeout=300s
-        env_vars: >-
-          API_KEY=${{ secrets.API_KEY }},
-          GCP_BUCKET_NAME=${{ secrets.GCP_BUCKET_NAME }},
-          STORAGE_PATH=GCP,
-          GCP_SA_CREDENTIALS=${{ secrets.GCP_SA_KEY }}
+        gcloud run deploy ${{ env.SERVICE_NAME }} \
+          --source . \
+          --project ${{ env.PROJECT_ID }} \
+          --region ${{ env.REGION }} \
+          --platform managed \
+          --allow-unauthenticated \
+          --memory=16Gi \
+          --cpu=4 \
+          --cpu-boost \
+          --min-instances=0 \
+          --max-instances=5 \
+          --timeout=300s \
+          --set-env-vars="API_KEY=${{ secrets.API_KEY }},GCP_BUCKET_NAME=${{ secrets.GCP_BUCKET_NAME }},STORAGE_PATH=GCP,GCP_SA_CREDENTIALS=${{ secrets.GCP_SA_KEY }}"
 
     - name: Show Output
-      run: echo ${{ steps.deploy.outputs.url }}
+      run: echo "Deployed to https://${{ env.SERVICE_NAME }}-${{ env.PROJECT_ID }}.run.app"
