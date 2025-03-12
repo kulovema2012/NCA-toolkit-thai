@@ -1,6 +1,11 @@
 # Base image
 FROM python:3.9-slim
 
+# Install Thai fonts including Sarabun
+RUN apt-get update && apt-get install -y fonts-thai-tlwg && \
+    fc-cache -f -v && \
+    rm -rf /var/lib/apt/lists/*
+
 # Install system dependencies, build tools, and libraries
 RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-noto-cjk \
@@ -47,13 +52,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libfribidi-dev \
     libharfbuzz-dev \
     && rm -rf /var/lib/apt/lists/*
-
-# Install Sarabun font from Google Fonts
-RUN mkdir -p /usr/share/fonts/truetype/sarabun && \
-    wget -q https://fonts.google.com/download?family=Sarabun -O sarabun.zip && \
-    unzip sarabun.zip -d /usr/share/fonts/truetype/sarabun && \
-    rm sarabun.zip && \
-    fc-cache -f -v
 
 # Install SRT from source (latest version using cmake)
 RUN git clone https://github.com/Haivision/srt.git && \
