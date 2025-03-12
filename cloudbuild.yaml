@@ -33,7 +33,11 @@ steps:
       - '--timeout'
       - '300s'
       - '--set-env-vars'
-      - 'API_KEY=${_API_KEY},GCP_BUCKET_NAME=${_GCP_BUCKET_NAME},STORAGE_PATH=GCP'
+      - 'API_KEY=${_API_KEY}'
+      - '--set-env-vars'
+      - 'GCP_BUCKET_NAME=${_GCP_BUCKET_NAME}'
+      - '--set-env-vars'
+      - 'STORAGE_PATH=GCP'
 
 substitutions:
   _API_KEY: 'default-value-replace-in-console'
