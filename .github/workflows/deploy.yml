@@ -27,6 +27,14 @@ jobs:
     - name: Deploy to Cloud Run
       id: deploy
       run: |
+        # Create a properly formatted env vars file
+        cat > .env.yaml << EOF
+        API_KEY: "${{ secrets.API_KEY }}"
+        GCP_BUCKET_NAME: "${{ secrets.GCP_BUCKET_NAME }}"
+        STORAGE_PATH: "GCP"
+        EOF
+        
+        # Deploy using the env file approach
         gcloud run deploy ${{ env.SERVICE_NAME }} \
           --source . \
           --project ${{ env.PROJECT_ID }} \
@@ -39,7 +47,7 @@ jobs:
           --min-instances=0 \
           --max-instances=5 \
           --timeout=300s \
-          --set-env-vars="API_KEY=${{ secrets.API_KEY }},GCP_BUCKET_NAME=${{ secrets.GCP_BUCKET_NAME }},STORAGE_PATH=GCP,GCP_SA_CREDENTIALS=${{ secrets.GCP_SA_KEY }}"
+          --env-vars-file=.env.yaml
 
     - name: Show Output
       run: echo "Deployed to https://${{ env.SERVICE_NAME }}-${{ env.PROJECT_ID }}.run.app"
