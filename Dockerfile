@@ -2,7 +2,7 @@
 FROM python:3.9-slim
 
 # Install Thai fonts including Sarabun
-RUN apt-get update && apt-get install -y fonts-thai-tlwg && \
+RUN apt-get update && apt-get install -y fonts-thai-tlwg fontconfig && \
     fc-cache -f -v && \
     rm -rf /var/lib/apt/lists/*
 
