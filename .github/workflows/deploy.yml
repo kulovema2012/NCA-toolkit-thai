@@ -24,19 +24,30 @@ jobs:
     - name: Set up Cloud SDK
       uses: google-github-actions/setup-gcloud@v1
 
-    - name: Deploy to Cloud Run
-      id: deploy
+    - name: Build and push Docker image
       run: |
-        # Create a properly formatted env vars file
+        # Build the Docker image
+        docker build -t gcr.io/${{ env.PROJECT_ID }}/${{ env.SERVICE_NAME }}:${{ github.sha }} .
+        
+        # Configure Docker to use gcloud as a credential helper
+        gcloud auth configure-docker
+        
+        # Push the Docker image
+        docker push gcr.io/${{ env.PROJECT_ID }}/${{ env.SERVICE_NAME }}:${{ github.sha }}
+
+    - name: Create env vars file
+      run: |
         cat > .env.yaml << EOF
         API_KEY: "${{ secrets.API_KEY }}"
         GCP_BUCKET_NAME: "${{ secrets.GCP_BUCKET_NAME }}"
         STORAGE_PATH: "GCP"
         EOF
-        
-        # Deploy using the env file approach
+
+    - name: Deploy to Cloud Run
+      id: deploy
+      run: |
         gcloud run deploy ${{ env.SERVICE_NAME }} \
-          --source . \
+          --image gcr.io/${{ env.PROJECT_ID }}/${{ env.SERVICE_NAME }}:${{ github.sha }} \
           --project ${{ env.PROJECT_ID }} \
           --region ${{ env.REGION }} \
           --platform managed \
