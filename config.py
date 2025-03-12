@@ -53,8 +53,10 @@ class S3CompatibleProvider(CloudStorageProvider):
         return upload_to_s3(file_path, self.bucket_name, self.region, self.endpoint_url, self.access_key, self.secret_key)
 
 def get_storage_provider() -> CloudStorageProvider:
-    """ Get the appropriate storage provider based on the available environment variables """
-    if os.getenv('S3_BUCKET_NAME'):
+    """ Get the appropriate storage provider based on the STORAGE_PATH environment variable """
+    storage_path = os.getenv('STORAGE_PATH', 'GCP').upper()
+    
+    if storage_path == 'S3':
         validate_env_vars('S3')
         return S3CompatibleProvider()
     else:

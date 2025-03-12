@@ -29,12 +29,19 @@ class S3CompatibleProvider(CloudStorageProvider):
         return upload_to_s3(file_path, self.endpoint_url, self.access_key, self.secret_key)
 
 def get_storage_provider() -> CloudStorageProvider:
-    try:
+    storage_path = os.getenv('STORAGE_PATH', 'GCP').upper()
+    
+    if storage_path == 'S3':
+        try:
+            validate_env_vars('S3')
+            return S3CompatibleProvider()
+        except ValueError as e:
+            logger.warning(f"Error with S3 configuration: {str(e)}. Falling back to GCP.")
+            validate_env_vars('GCP')
+            return GCPStorageProvider()
+    else:
         validate_env_vars('GCP')
         return GCPStorageProvider()
-    except ValueError:
-        validate_env_vars('S3')
-        return S3CompatibleProvider()
 
 def upload_file(file_path: str) -> str:
     provider = get_storage_provider()
@@ -46,4 +53,3 @@ def upload_file(file_path: str) -> str:
     except Exception as e:
         logger.error(f"Error uploading file to cloud storage: {e}")
         raise
-    
