@@ -32,16 +32,6 @@ steps:
       - '5'
       - '--timeout'
       - '300s'
-      - '--set-env-vars'
-      - 'API_KEY=${_API_KEY}'
-      - '--set-env-vars'
-      - 'GCP_BUCKET_NAME=${_GCP_BUCKET_NAME}'
-      - '--set-env-vars'
-      - 'STORAGE_PATH=GCP'
-
-substitutions:
-  _API_KEY: 'default-value-replace-in-console'
-  _GCP_BUCKET_NAME: 'default-value-replace-in-console'
 
 images:
   - 'gcr.io/$PROJECT_ID/no-code-architects-toolkit'
