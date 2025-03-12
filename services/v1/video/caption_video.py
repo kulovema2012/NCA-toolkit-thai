@@ -754,7 +754,7 @@ def process_captioning_v1(video_url, captions, settings, replace, job_id, langua
             try:
                 cloud_url = upload_file(output_path)
                 logger.info(f"Job {job_id}: Uploaded captioned video to {cloud_url}")
-                return {"file_url": cloud_url}
+                return output_path
             except Exception as upload_error:
                 logger.error(f"Job {job_id}: Failed to upload captioned video: {str(upload_error)}")
                 return {"error": f"Failed to upload captioned video: {str(upload_error)}"}
