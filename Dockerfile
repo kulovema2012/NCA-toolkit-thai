@@ -1,6 +1,13 @@
 # Base image
 FROM python:3.9-slim
 
+# Install Sarabun font from Google Fonts
+RUN mkdir -p /usr/share/fonts/truetype/sarabun && \
+    wget -q https://fonts.google.com/download?family=Sarabun -O sarabun.zip && \
+    unzip sarabun.zip -d /usr/share/fonts/truetype/sarabun && \
+    rm sarabun.zip && \
+    fc-cache -f -v
+
 # Install system dependencies, build tools, and libraries
 RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-noto-cjk \
