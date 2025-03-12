@@ -41,6 +41,7 @@ jobs:
         API_KEY: "${{ secrets.API_KEY }}"
         GCP_BUCKET_NAME: "${{ secrets.GCP_BUCKET_NAME }}"
         STORAGE_PATH: "GCP"
+        S3_BUCKET_NAME: ""
         EOF
 
     - name: Deploy to Cloud Run
