@@ -86,11 +86,6 @@ def caption_video_v1(job_id, data):
     language = data.get('language', 'auto')
     auto_transcribe = data.get('auto_transcribe', False)
     
-    # If auto_transcribe is true, explicitly set captions to None to force transcription
-    if auto_transcribe:
-        captions = None
-        logger.info(f"Job {job_id}: Auto-transcription requested. Language: {language}")
-
     logger.info(f"Job {job_id}: Received v1 captioning request for {video_url}")
     logger.info(f"Job {job_id}: Settings received: {settings}")
     logger.info(f"Job {job_id}: Replace rules received: {replace}")
@@ -99,6 +94,19 @@ def caption_video_v1(job_id, data):
         # Do NOT combine position and alignment. Keep them separate.
         # Just pass settings directly to process_captioning_v1.
         # This ensures position and alignment remain independent keys.
+        
+        # Check if we should auto-transcribe
+        auto_transcribe = data.get('auto_transcribe', False)
+        
+        # If auto-transcribe is enabled but captions are provided, log a warning
+        if auto_transcribe and captions:
+            logger.warning(f"Job {job_id}: Both auto_transcribe and captions provided. Auto-transcribe will be ignored.")
+            auto_transcribe = False
+        
+        # If auto-transcribe is enabled, set captions to None to trigger transcription
+        if auto_transcribe:
+            logger.info(f"Job {job_id}: Auto-transcription enabled with language: {language}")
+            captions = None
         
         # Process video with the enhanced v1 service
         output = process_captioning_v1(video_url, captions, settings, replace, job_id, language)

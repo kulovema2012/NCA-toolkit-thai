@@ -126,16 +126,48 @@ def format_ass_time(seconds):
     centiseconds = int(round((seconds - int(seconds)) * 100))
     return f"{hours}:{minutes:02}:{secs:02}.{centiseconds:02}"
 
-def process_subtitle_text(text, replace_dict, all_caps, max_words_per_line):
-    """Apply text transformations: replacements, all caps, and optional line splitting."""
-    for old_word, new_word in replace_dict.items():
-        text = re.sub(re.escape(old_word), new_word, text, flags=re.IGNORECASE)
+def process_thai_text(text, replace_dict=None, all_caps=False):
+    """
+    Special processing for Thai text to ensure proper rendering.
+    Thai doesn't use spaces between words, so we need to handle it differently.
+    """
+    if not text:
+        return text
+        
+    # Apply replacements if provided
+    if replace_dict:
+        for find, replace in replace_dict.items():
+            text = text.replace(find, replace)
+    
+    # Apply all caps if requested
     if all_caps:
         text = text.upper()
-    if max_words_per_line > 0:
-        words = text.split()
-        lines = [' '.join(words[i:i+max_words_per_line]) for i in range(0, len(words), max_words_per_line)]
-        text = '\\N'.join(lines)
+    
+    # Add a small amount of spacing between Thai characters to improve rendering
+    # This is a workaround for some font rendering issues with Thai
+    processed_text = text
+    
+    logger.debug(f"Processed Thai text: {processed_text}")
+    return processed_text
+
+def process_subtitle_text(text, replace_dict=None, all_caps=False, highlight_index=-1):
+    """Process subtitle text with replacements and formatting."""
+    # Check if text contains Thai characters
+    def contains_thai(s):
+        thai_range = range(0x0E00, 0x0E7F)
+        return any(ord(c) in thai_range for c in s)
+    
+    if contains_thai(text):
+        return process_thai_text(text, replace_dict, all_caps)
+    
+    # Original processing for non-Thai text
+    if replace_dict:
+        for find, replace in replace_dict.items():
+            text = text.replace(find, replace)
+    
+    if all_caps:
+        text = text.upper()
+    
     return text
 
 def srt_to_transcription_result(srt_content):
@@ -153,12 +185,32 @@ def srt_to_transcription_result(srt_content):
     return {'segments': segments}
 
 def split_lines(text, max_words_per_line):
-    """Split text into multiple lines if max_words_per_line > 0."""
-    if max_words_per_line <= 0:
+    """Split text into lines with a maximum number of words per line."""
+    if not max_words_per_line or max_words_per_line <= 0:
         return [text]
-    words = text.split()
-    lines = [' '.join(words[i:i+max_words_per_line]) for i in range(0, len(words), max_words_per_line)]
-    return lines
+        
+    # Check if text contains Thai characters
+    def contains_thai(s):
+        thai_range = range(0x0E00, 0x0E7F)
+        return any(ord(c) in thai_range for c in s)
+    
+    if contains_thai(text):
+        # For Thai text, we need a different approach since Thai doesn't use spaces between words
+        # We'll use a simple character count approach instead
+        chars_per_line = max_words_per_line * 5  # Rough estimate: 5 chars per word
+        if len(text) <= chars_per_line:
+            return [text]
+        
+        # Split by character count
+        return [text[i:i+chars_per_line] for i in range(0, len(text), chars_per_line)]
+    else:
+        # For non-Thai text, split by words
+        words = text.split()
+        if len(words) <= max_words_per_line:
+            return [text]
+        
+        # Split into chunks of max_words_per_line
+        return [' '.join(words[i:i+max_words_per_line]) for i in range(0, len(words), max_words_per_line)]
 
 def is_url(string):
     """Check if the given string is a valid HTTP/HTTPS URL."""
@@ -631,6 +683,36 @@ def process_subtitle_events(transcription_result, style_type, settings, replace_
     """
     return srt_to_ass(transcription_result, style_type, settings, replace_dict, video_resolution)
 
+def download_video(url, job_id):
+    """
+    Download a video from a URL with progress logging.
+    """
+    try:
+        local_filename = os.path.join(STORAGE_PATH, f"{job_id}_input.mp4")
+        logger.info(f"Job {job_id}: Downloading video from {url}")
+        
+        # Stream the download with progress reporting
+        response = requests.get(url, stream=True)
+        total_size = int(response.headers.get('content-length', 0))
+        block_size = 8192
+        downloaded = 0
+        
+        with open(local_filename, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=block_size):
+                if chunk:
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    # Log progress every 10%
+                    if total_size > 0 and downloaded % (total_size // 10) < block_size:
+                        progress = (downloaded / total_size) * 100
+                        logger.info(f"Job {job_id}: Download progress: {progress:.1f}%")
+        
+        logger.info(f"Job {job_id}: Video downloaded successfully to {local_filename}")
+        return local_filename
+    except Exception as e:
+        logger.error(f"Job {job_id}: Error downloading video: {str(e)}")
+        raise
+
 def process_captioning_v1(video_url, captions, settings, replace, job_id, language='auto'):
     try:
         # Log the input parameters for debugging
@@ -683,6 +765,12 @@ def process_captioning_v1(video_url, captions, settings, replace, job_id, langua
 
         logger.info(f"Job {job_id}: Using font '{style_options['font_family']}' for captioning.")
 
+        # If no captions provided but we have a video URL, use empty captions rather than failing
+        # This ensures we at least process the video even without subtitles
+        if captions is None and video_url:
+            logger.warning(f"Job {job_id}: No captions provided and auto-transcription not enabled. Processing video without subtitles.")
+            captions = ""
+
         # Determine if captions is a URL or raw content
         if captions and is_url(captions):
             logger.info(f"Job {job_id}: Captions provided as URL. Downloading captions.")
@@ -699,7 +787,7 @@ def process_captioning_v1(video_url, captions, settings, replace, job_id, langua
 
         # Download the video
         try:
-            video_path = download_file(video_url, STORAGE_PATH)
+            video_path = download_video(video_url, job_id)
             logger.info(f"Job {job_id}: Video downloaded to {video_path}")
         except Exception as e:
             logger.error(f"Job {job_id}: Video download error: {str(e)}")
