@@ -8,6 +8,10 @@
 .DS_Store
 Thumbs.db
 original_source/
+subtitle_test_output/
+local_testing/
+thai_test_output/
+test_output/
 
 # Python
 __pycache__/
@@ -46,5 +50,22 @@ logs/
 .vscode/
 *.swp
 *.swo
-key.json
+
+# Test files
+test_ffmpeg_subtitle.py
+test_auto_caption.py
+test_api_subtitle.py
+
+# Generated media files
+*.mp4
+*.srt
+*.ass
+*.wav
+*.mp3
+
+# Temporary files
+tmp/
+temp/
+
+# Exclude sensitive files
 key.json

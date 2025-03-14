@@ -2,12 +2,12 @@ Flask
 Werkzeug
 requests
 ffmpeg-python
-openai-whisper
+openai-whisper==20231117
 gunicorn
 APScheduler
 srt
 numpy
-torch
+torch==2.1.0
 google-auth
 google-auth-oauthlib
 google-auth-httplib2
@@ -17,3 +17,6 @@ psutil
 boto3
 Pillow
 matplotlib
+whisper
+jsonschema
+ffmpeg-python

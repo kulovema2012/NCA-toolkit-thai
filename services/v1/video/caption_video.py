@@ -46,35 +46,54 @@ def rgb_to_ass_color(rgb_color):
     return "&H00FFFFFF"
 
 def generate_transcription(video_path, language='auto'):
+    """
+    Generate transcription from video using Whisper model.
+    Returns a dictionary with segments containing start, end, and text.
+    """
     try:
-        # Choose model size based on language
-        # Use larger models for better multilingual support, especially for Thai
-        if language == 'th' or language == 'thai':
-            model_size = "medium"  # Better for Thai language
-            language = "th"  # Ensure language code is correct
+        # Determine the appropriate model size based on language
+        # Use medium model for Thai language to improve accuracy
+        if language and language.lower() in ['th', 'thai']:
+            model_size = "medium"
+            language = "th"  # Explicitly set language to Thai
+            logger.info(f"Using medium model for Thai language transcription")
         else:
-            model_size = "base"  # Default model for other languages
+            model_size = "base"
             
         logger.info(f"Loading Whisper {model_size} model for transcription...")
         model = whisper.load_model(model_size)
+        logger.info(f"Whisper model loaded successfully")
         
+        # Set transcription options
         transcription_options = {
-            'word_timestamps': True,
-            'verbose': True,
+            "word_timestamps": True,  # Enable word-level timestamps
         }
         
-        # If language is specified, use it
-        if language != 'auto':
-            transcription_options['language'] = language
-            logger.info(f"Using specified language: {language}")
-        
-        logger.info(f"Starting transcription for video: {video_path}")
+        # If language is specified and not 'auto', use it
+        if language and language.lower() != 'auto':
+            transcription_options["language"] = language
+            logger.info(f"Setting language to {language} for transcription")
+            
+        logger.info(f"Starting transcription with options: {transcription_options}")
         result = model.transcribe(video_path, **transcription_options)
         
-        # Log some statistics about the transcription
-        segment_count = len(result.get('segments', []))
-        total_duration = result.get('segments', [])[-1]['end'] if segment_count > 0 else 0
-        logger.info(f"Transcription completed with {segment_count} segments over {total_duration:.2f} seconds")
+        # Ensure proper encoding for Thai text
+        if language and language.lower() in ['th', 'thai']:
+            for segment in result["segments"]:
+                # Ensure text is properly encoded
+                if isinstance(segment["text"], str):
+                    # Try to fix encoding issues by normalizing the text
+                    import unicodedata
+                    segment["text"] = unicodedata.normalize('NFC', segment["text"])
+                    
+                    # Remove any non-Thai characters that might have been incorrectly added
+                    thai_range = range(0x0E00, 0x0E7F)
+                    cleaned_text = ''.join(c for c in segment["text"] if ord(c) in thai_range or c.isspace() or c in '.!?,;:')
+                    if cleaned_text:  # Only replace if we have some text left
+                        segment["text"] = cleaned_text
+        
+        logger.info(f"Transcription completed with {len(result['segments'])} segments")
+        logger.info(f"Total duration: {result['segments'][-1]['end'] if result['segments'] else 0} seconds")
         
         return result
     except Exception as e:
@@ -683,6 +702,28 @@ def process_subtitle_events(transcription_result, style_type, settings, replace_
     """
     return srt_to_ass(transcription_result, style_type, settings, replace_dict, video_resolution)
 
+def write_ass_file(ass_content, output_dir, job_id):
+    """Write ASS content to a file and return the file path."""
+    ass_file = os.path.join(output_dir, f"{job_id}_subtitles.ass")
+    
+    # Ensure we're writing with UTF-8 encoding to properly handle Thai characters
+    with open(ass_file, 'w', encoding='utf-8') as f:
+        f.write(ass_content)
+    
+    logger.info(f"ASS file written to {ass_file}")
+    return ass_file
+
+def write_srt_file(srt_content, output_dir, job_id):
+    """Write SRT content to a file and return the file path."""
+    srt_file = os.path.join(output_dir, f"{job_id}_subtitles.srt")
+    
+    # Ensure we're writing with UTF-8 encoding to properly handle Thai characters
+    with open(srt_file, 'w', encoding='utf-8') as f:
+        f.write(srt_content)
+    
+    logger.info(f"SRT file written to {srt_file}")
+    return srt_file
+
 def download_video(url, job_id):
     """
     Download a video from a URL with progress logging.
@@ -712,6 +753,213 @@ def download_video(url, job_id):
     except Exception as e:
         logger.error(f"Job {job_id}: Error downloading video: {str(e)}")
         raise
+
+def add_subtitles_to_video(video_path, subtitle_path, output_path, job_id=None, 
+                          font_name="Sarabun", font_size=24, margin_v=30, 
+                          subtitle_style="classic", max_width=None, position="bottom"):
+    """
+    Add subtitles to a video using FFmpeg.
+    
+    Args:
+        video_path: Path to the input video file
+        subtitle_path: Path to the subtitle file (SRT format)
+        output_path: Path to save the output video
+        job_id: Optional job ID for logging
+        font_name: Font name to use for subtitles (default: Sarabun for Thai)
+        font_size: Font size for subtitles (default: 24)
+        margin_v: Vertical margin from the bottom/top of the frame (default: 30)
+        subtitle_style: Style of subtitles - "classic" (with outline) or "modern" (with background)
+        max_width: Maximum width of subtitle text (in % of video width, e.g. 80 for 80%)
+        position: Position of subtitles - "bottom", "top", or "middle"
+        
+    Returns:
+        Path to the output video file with subtitles
+    """
+    logger.info(f"Adding subtitles to video with font: {font_name}, size: {font_size}, style: {subtitle_style}, position: {position}")
+    
+    try:
+        # Fix path handling for Windows
+        # Replace backslashes with forward slashes for FFmpeg
+        video_path_escaped = video_path.replace('\\', '/')
+        subtitle_path_escaped = subtitle_path.replace('\\', '/')
+        output_path_escaped = output_path.replace('\\', '/')
+        
+        # Determine position alignment
+        alignment = "2"  # Default: bottom-center
+        if position == "top":
+            alignment = "8"  # top-center
+        elif position == "middle":
+            alignment = "5"  # middle-center
+            
+        # Set vertical margin based on position
+        margin_v_param = f"MarginV={margin_v}"
+        
+        # Determine style parameters based on style choice
+        if subtitle_style == "modern":
+            # Modern style with semi-transparent background
+            style_params = f"FontName={font_name},FontSize={font_size},PrimaryColour=&H00FFFFFF,BackColour=&H80000000,BorderStyle=1,Outline=0,Shadow=0,{margin_v_param},Alignment={alignment}"
+        else:
+            # Classic style with outline
+            style_params = f"FontName={font_name},FontSize={font_size},PrimaryColour=&H00FFFFFF,OutlineColour=&H000F0F0F,BackColour=&H80000000,BorderStyle=4,Outline=1,Shadow=1,{margin_v_param},Alignment={alignment}"
+        
+        # Add max width constraint if specified
+        if max_width:
+            # Get video dimensions
+            ffprobe_cmd = [
+                "ffprobe",
+                "-v", "error",
+                "-select_streams", "v:0",
+                "-show_entries", "stream=width",
+                "-of", "csv=p=0",
+                video_path_escaped
+            ]
+            
+            try:
+                video_width = int(subprocess.check_output(ffprobe_cmd, universal_newlines=True).strip())
+                # Calculate text width in pixels (approximate)
+                text_width = int(video_width * max_width / 100)
+                # Add text wrapping parameter
+                style_params += f",TextWrapStyle=2,WrapStyle=2,LineSpacing=0.5,MaxWidth={text_width}"
+            except Exception as e:
+                logger.warning(f"Could not determine video width: {str(e)}. Skipping max width constraint.")
+        
+        # Construct FFmpeg command with proper path formatting and styling
+        ffmpeg_cmd = [
+            "ffmpeg",
+            "-i", video_path_escaped,
+            "-vf", f"subtitles={subtitle_path_escaped}:force_style='{style_params}'",
+            "-c:a", "copy",
+            "-y",
+            output_path_escaped
+        ]
+        
+        logger.info(f"Running FFmpeg command: {' '.join(ffmpeg_cmd)}")
+        
+        # Run FFmpeg command
+        process = subprocess.Popen(
+            ffmpeg_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            universal_newlines=True
+        )
+        
+        stdout, stderr = process.communicate()
+        
+        if process.returncode != 0:
+            logger.error(f"FFmpeg error: {stderr}")
+            
+            # Try alternative method with ASS format for better styling control
+            logger.info("Trying alternative method with ASS format")
+            
+            # Convert SRT to ASS with custom styling
+            ass_path = subtitle_path.replace(".srt", ".ass")
+            ffmpeg_convert_cmd = [
+                "ffmpeg",
+                "-i", subtitle_path_escaped,
+                ass_path
+            ]
+            
+            subprocess.run(ffmpeg_convert_cmd, check=True)
+            
+            # Modify the ASS file to add custom styling
+            try:
+                with open(ass_path, "r", encoding="utf-8") as f:
+                    ass_content = f.read()
+                
+                # Add custom style settings
+                style_section = "[V4+ Styles]\n"
+                style_section += "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"
+                
+                # Create style line based on parameters
+                if subtitle_style == "modern":
+                    style_line = f"Style: Default,{font_name},{font_size},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,0,0,{alignment},10,10,{margin_v},1\n\n"
+                else:
+                    style_line = f"Style: Default,{font_name},{font_size},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,4,1,1,{alignment},10,10,{margin_v},1\n\n"
+                
+                style_section += style_line
+                
+                # Replace the style section if it exists
+                if "[V4+ Styles]" in ass_content:
+                    import re
+                    ass_content = re.sub(r'\[V4\+ Styles\].*?\n\n', style_section, ass_content, flags=re.DOTALL)
+                else:
+                    # Add it before the events section
+                    ass_content = ass_content.replace("[Events]", style_section + "[Events]")
+                
+                # Add text wrapping for long lines if max_width is specified
+                if max_width:
+                    try:
+                        # Add line breaks to long dialogue lines
+                        events_section = ass_content.split("[Events]")[1]
+                        dialogue_lines = re.findall(r'(Dialogue:[^\n]+)', events_section)
+                        
+                        for line in dialogue_lines:
+                            # Extract text part
+                            text_parts = line.split(',', 9)
+                            if len(text_parts) >= 10:
+                                text = text_parts[9]
+                                # If text is longer than threshold, add line breaks
+                                if len(text) > 40:
+                                    # Find good breaking points
+                                    words = text.split()
+                                    new_text = ""
+                                    line_length = 0
+                                    
+                                    for word in words:
+                                        if line_length + len(word) > 40:
+                                            new_text += "\\N" + word + " "
+                                            line_length = len(word) + 1
+                                        else:
+                                            new_text += word + " "
+                                            line_length += len(word) + 1
+                                    
+                                    # Replace original text with wrapped text
+                                    new_line = ','.join(text_parts[:9]) + ',' + new_text.strip()
+                                    ass_content = ass_content.replace(line, new_line)
+                    except Exception as e:
+                        logger.warning(f"Error applying text wrapping: {str(e)}")
+                
+                with open(ass_path, "w", encoding="utf-8") as f:
+                    f.write(ass_content)
+            except Exception as e:
+                logger.warning(f"Could not modify ASS file: {str(e)}")
+            
+            # Add ASS subtitles
+            ffmpeg_ass_cmd = [
+                "ffmpeg",
+                "-i", video_path_escaped,
+                "-vf", f"ass={ass_path}",
+                "-c:a", "copy",
+                "-y",
+                output_path_escaped
+            ]
+            
+            logger.info(f"Running alternative FFmpeg command: {' '.join(ffmpeg_ass_cmd)}")
+            
+            process_ass = subprocess.Popen(
+                ffmpeg_ass_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                universal_newlines=True
+            )
+            
+            stdout_ass, stderr_ass = process_ass.communicate()
+            
+            if process_ass.returncode != 0:
+                logger.error(f"Alternative FFmpeg error: {stderr_ass}")
+                return None
+            else:
+                logger.info("Alternative method succeeded")
+                return output_path
+        else:
+            logger.info("FFmpeg command succeeded")
+            return output_path
+    
+    except Exception as e:
+        logger.error(f"Error adding subtitles: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return None
 
 def process_captioning_v1(video_url, captions, settings, replace, job_id, language='auto'):
     try:
@@ -835,95 +1083,31 @@ def process_captioning_v1(video_url, captions, settings, replace, job_id, langua
             return {"error": subtitle_content['error']}
 
         # Save the subtitle content
-        subtitle_filename = f"{job_id}.{subtitle_type}"
-        subtitle_path = os.path.join(STORAGE_PATH, subtitle_filename)
-        try:
-            with open(subtitle_path, 'w', encoding='utf-8') as f:
-                f.write(subtitle_content)
-            logger.info(f"Job {job_id}: Subtitle file saved to {subtitle_path}")
-        except Exception as e:
-            logger.error(f"Job {job_id}: Failed to save subtitle file: {str(e)}")
-            return {"error": f"Failed to save subtitle file: {str(e)}"}
+        if subtitle_type == 'ass':
+            subtitle_path = write_ass_file(subtitle_content, STORAGE_PATH, job_id)
+        else:
+            subtitle_path = write_srt_file(subtitle_content, STORAGE_PATH, job_id)
+        
+        logger.info(f"Job {job_id}: Subtitle file saved to {subtitle_path}")
 
         # Prepare output filename and path
         output_filename = f"{job_id}_captioned.mp4"
         output_path = os.path.join(STORAGE_PATH, output_filename)
 
-        # Process video with subtitles using FFmpeg
+        # Add subtitles to video
+        output_path = os.path.join(STORAGE_PATH, output_filename)
         try:
-            # Create a more reliable path handling for FFmpeg on Windows
-            # Instead of escaping, use a different approach for Windows
-            if os.name == 'nt':  # Windows system
-                # For Windows, use absolute path with forward slashes
-                normalized_subtitle_path = os.path.abspath(subtitle_path).replace('\\', '/')
+            # Use our improved subtitle addition function
+            captioned_video_path = add_subtitles_to_video(video_path, subtitle_path, output_path, job_id)
+            
+            if not captioned_video_path:
+                logger.error(f"Job {job_id}: Failed to add subtitles to video")
+                return {"error": "Failed to add subtitles to video"}
                 
-                if subtitle_type == 'ass':
-                    # Use the ass filter with normalized path
-                    ffmpeg_cmd = (
-                        ffmpeg
-                        .input(video_path)
-                        .output(
-                            output_path,
-                            vf=f"ass={normalized_subtitle_path}",
-                            acodec='copy'
-                        )
-                    )
-                    
-                    # Run the command and capture any output
-                    logger.info(f"Job {job_id}: Running FFmpeg command with ASS filter using normalized path: {normalized_subtitle_path}")
-                    ffmpeg_cmd.run(overwrite_output=True, quiet=False)
-                else:
-                    # Fallback to subtitles filter for SRT with normalized path
-                    ffmpeg_cmd = (
-                        ffmpeg
-                        .input(video_path)
-                        .output(
-                            output_path,
-                            vf=f"subtitles={normalized_subtitle_path}",
-                            acodec='copy'
-                        )
-                    )
-                    
-                    logger.info(f"Job {job_id}: Running FFmpeg command with subtitles filter using normalized path: {normalized_subtitle_path}")
-                    ffmpeg_cmd.run(overwrite_output=True, quiet=False)
-            else:
-                # Original code for non-Windows systems
-                # Escape special characters in the subtitle path for FFmpeg
-                escaped_subtitle_path = subtitle_path.replace('\\', '\\\\').replace(':', '\\:').replace('\'', '\\\'')
-                
-                if subtitle_type == 'ass':
-                    # Use the ass filter which is more reliable for ASS subtitles
-                    ffmpeg_cmd = (
-                        ffmpeg
-                        .input(video_path)
-                        .output(
-                            output_path,
-                            vf=f"ass='{escaped_subtitle_path}'",
-                            acodec='copy'
-                        )
-                    )
-                    
-                    # Run the command and capture any output
-                    logger.info(f"Job {job_id}: Running FFmpeg command with ASS filter")
-                    ffmpeg_cmd.run(overwrite_output=True, quiet=False)
-                else:
-                    # Fallback to subtitles filter for SRT
-                    ffmpeg_cmd = (
-                        ffmpeg
-                        .input(video_path)
-                        .output(
-                            output_path,
-                            vf=f"subtitles='{escaped_subtitle_path}'",
-                            acodec='copy'
-                        )
-                    )
-                    
-                    logger.info(f"Job {job_id}: Running FFmpeg command with subtitles filter")
-                    ffmpeg_cmd.run(overwrite_output=True, quiet=False)
-        except ffmpeg.Error as e:
-            stderr_output = e.stderr.decode('utf8') if e.stderr else 'Unknown error'
-            logger.error(f"Job {job_id}: FFmpeg error: {stderr_output}")
-            return {"error": f"FFmpeg error: {stderr_output}"}
+            logger.info(f"Job {job_id}: Video with captions saved to {captioned_video_path}")
+        except Exception as e:
+            logger.error(f"Job {job_id}: Error adding subtitles to video: {str(e)}")
+            return {"error": f"Error adding subtitles to video: {str(e)}"}
 
         # Upload the output file to cloud storage
         try:

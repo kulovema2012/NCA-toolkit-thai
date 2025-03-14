@@ -1,4 +1,3 @@
-
 ![Original Logo Symbol](https://github.com/user-attachments/assets/75173cf4-2502-4710-998b-6b81740ae1bd)
 
 # No-Code Architects Toolkit API 
@@ -49,9 +48,19 @@ Each feature is supported by robust payload validation and detailed API document
 
 #### 2. `/v1/video/caption`
 - **Description**: Adds captions to a video file, including options for font, position, and styling. It also supports automated language detection and custom replacements in captions.
-- **Documentation Link**: [Video Caption Documentation](https://github.com/stephengpope/no-code-architects-toolkit/blob/main/docs/video/caption_video.md)
+- **Documentation Link**: [Caption Video Documentation](https://github.com/stephengpope/no-code-architects-toolkit/blob/main/docs/video/caption_video.md)
 
-#### 3. `/v1/video/concatenate`
+#### 3. `/v1/video/auto-caption`
+- **Description**: Automatically transcribes and adds subtitles to videos in a single API call. Supports Thai language with proper font rendering using Sarabun and other Thai fonts. Includes options for multi-language detection, subtitle styling, and positioning.
+- **Key Features**:
+  - One-step process for transcription and captioning
+  - Proper Thai text rendering with Sarabun font
+  - Multi-language support with automatic language detection
+  - Customizable subtitle styling (classic or modern)
+  - Adjustable subtitle positioning (top, bottom, middle)
+- **Documentation Link**: [Auto-Caption Video Documentation](https://github.com/stephengpope/no-code-architects-toolkit/blob/main/docs/video/auto_caption_video.md)
+
+#### 4. `/v1/video/concatenate`
 - **Description**: Combines multiple video files into a single video file. The input files are concatenated in the specified order, and the final video is uploaded to cloud storage.
 - **Documentation Link**: [Video Concatenate Documentation](https://github.com/stephengpope/no-code-architects-toolkit/blob/main/docs/video/concatenate.md)
 
@@ -59,7 +68,7 @@ Each feature is supported by robust payload validation and detailed API document
 
 ### Code Execution
 
-#### 4. `/v1/code/execute/python`
+#### 5. `/v1/code/execute/python`
 - **Description**: Executes Python code on the server in a controlled environment. Useful for scripting, prototyping, or dynamically running Python scripts with secure execution.
 - **Documentation Link**: [Execute Python Documentation](https://github.com/stephengpope/no-code-architects-toolkit/blob/main/docs/code/execute/execute_python.md)
 
@@ -67,7 +76,7 @@ Each feature is supported by robust payload validation and detailed API document
 
 ### Image Processing
 
-#### 5. `/v1/image/transform/video`
+#### 6. `/v1/image/transform/video`
 - **Description**: Converts an image into a video file with configurable options like duration, frame rate, and zoom effects. Ideal for creating video slideshows or transitions.
 - **Documentation Link**: [Image to Video Documentation](https://github.com/stephengpope/no-code-architects-toolkit/blob/main/docs/image/transform/image_to_video.md)
 
@@ -75,11 +84,11 @@ Each feature is supported by robust payload validation and detailed API document
 
 ### Media Transformation
 
-#### 6. `/v1/media/transform/mp3`
+#### 7. `/v1/media/transform/mp3`
 - **Description**: Transforms media files into MP3 format, supporting advanced options for encoding like bit rate and sample rate configuration.
 - **Documentation Link**: [Media Transform to MP3 Documentation](https://github.com/stephengpope/no-code-architects-toolkit/blob/main/docs/media/transform/media_to_mp3.md)
 
-#### 7. `/v1/media/transcribe`
+#### 8. `/v1/media/transcribe`
 - **Description**: Transcribes audio files to text using advanced speech-to-text processing. Supports various languages and audio formats.
 - **Documentation Link**: [Audio Transcribe Documentation](https://github.com/stephengpope/no-code-architects-toolkit/blob/main/docs/media/media_transcribe.md)
 
@@ -87,11 +96,11 @@ Each feature is supported by robust payload validation and detailed API document
 
 ### Core Features
 
-#### 8. `/v1/toolkit/test`
+#### 9. `/v1/toolkit/test`
 - **Description**: A basic endpoint to verify the availability and functionality of the API. Useful for initial setup and connection tests.
 - **Documentation Link**: [Test Endpoint Documentation](https://github.com/stephengpope/no-code-architects-toolkit/blob/main/docs/toolkit/test.md)
 
-#### 9. `/v1/toolkit/authenticate`
+#### 10. `/v1/toolkit/authenticate`
 - **Description**: Verifies the provided API key and authenticates the user. Returns a success message if the API key is valid.
 - **Documentation Link**: [Authenticate Endpoint Documentation](https://github.com/stephengpope/no-code-architects-toolkit/blob/main/docs/toolkit/authenticate.md)
 
