@@ -96,28 +96,38 @@ def caption_video_v1(job_id, data):
         # Process video with the enhanced v1 service
         output = process_captioning_v1(video_url, captions, settings, replace, job_id, language)
         
-        if isinstance(output, dict) and 'error' in output:
-            # Check if this is a font-related error by checking for 'available_fonts' key
-            if 'available_fonts' in output:
-                # Font error scenario
-                return {"error": output['error'], "available_fonts": output['available_fonts']}, "/v1/video/caption", 400
-            else:
-                # Non-font error scenario, do not return available_fonts
-                return {"error": output['error']}, "/v1/video/caption", 400
+        if isinstance(output, dict):
+            if 'error' in output:
+                # Check if this is a font-related error by checking for 'available_fonts' key
+                if 'available_fonts' in output:
+                    # Font error scenario
+                    return {"error": output['error'], "available_fonts": output['available_fonts']}, "/v1/video/caption", 400
+                else:
+                    # Non-font error scenario, do not return available_fonts
+                    return {"error": output['error']}, "/v1/video/caption", 400
+            elif 'file_url' in output:
+                # If processing was successful, output contains the file_url
+                cloud_url = output['file_url']
+                logger.info(f"Job {job_id}: Captioning process completed successfully")
+                return cloud_url, "/v1/video/caption", 200
 
-        # If processing was successful, output is the file path
-        output_path = output
-        logger.info(f"Job {job_id}: Captioning process completed successfully")
+        # For backward compatibility, if output is a string (file path)
+        if isinstance(output, str):
+            output_path = output
+            logger.info(f"Job {job_id}: Captioning process completed successfully")
 
-        # Upload the captioned video
-        cloud_url = upload_file(output_path)
-        logger.info(f"Job {job_id}: Captioned video uploaded to cloud storage: {cloud_url}")
+            # Upload the captioned video
+            cloud_url = upload_file(output_path)
+            logger.info(f"Job {job_id}: Captioned video uploaded to cloud storage: {cloud_url}")
 
-        # Clean up the output file after upload
-        os.remove(output_path)
-        logger.info(f"Job {job_id}: Cleaned up local output file")
+            # Clean up the output file after upload
+            try:
+                os.remove(output_path)
+                logger.info(f"Job {job_id}: Cleaned up local output file")
+            except Exception as e:
+                logger.warning(f"Job {job_id}: Could not remove local file: {str(e)}")
 
-        return cloud_url, "/v1/video/caption", 200
+            return cloud_url, "/v1/video/caption", 200
 
     except Exception as e:
         logger.error(f"Job {job_id}: Error during captioning process - {str(e)}", exc_info=True)
