@@ -47,15 +47,35 @@ def rgb_to_ass_color(rgb_color):
 
 def generate_transcription(video_path, language='auto'):
     try:
-        model = whisper.load_model("base")
+        # Choose model size based on language
+        # Use larger models for better multilingual support, especially for Thai
+        if language == 'th' or language == 'thai':
+            model_size = "medium"  # Better for Thai language
+            language = "th"  # Ensure language code is correct
+        else:
+            model_size = "base"  # Default model for other languages
+            
+        logger.info(f"Loading Whisper {model_size} model for transcription...")
+        model = whisper.load_model(model_size)
+        
         transcription_options = {
             'word_timestamps': True,
             'verbose': True,
         }
+        
+        # If language is specified, use it
         if language != 'auto':
             transcription_options['language'] = language
+            logger.info(f"Using specified language: {language}")
+        
+        logger.info(f"Starting transcription for video: {video_path}")
         result = model.transcribe(video_path, **transcription_options)
-        logger.info(f"Transcription generated successfully for video: {video_path}")
+        
+        # Log some statistics about the transcription
+        segment_count = len(result.get('segments', []))
+        total_duration = result.get('segments', [])[-1]['end'] if segment_count > 0 else 0
+        logger.info(f"Transcription completed with {segment_count} segments over {total_duration:.2f} seconds")
+        
         return result
     except Exception as e:
         logger.error(f"Error in transcription: {str(e)}")
@@ -613,6 +633,13 @@ def process_subtitle_events(transcription_result, style_type, settings, replace_
 
 def process_captioning_v1(video_url, captions, settings, replace, job_id, language='auto'):
     try:
+        # Log the input parameters for debugging
+        logger.info(f"Job {job_id}: Processing video captioning with parameters:")
+        logger.info(f"Job {job_id}: video_url: {video_url}")
+        logger.info(f"Job {job_id}: captions provided: {'Yes' if captions else 'No'}")
+        logger.info(f"Job {job_id}: settings: {settings}")
+        logger.info(f"Job {job_id}: language: {language}")
+        
         if not isinstance(settings, dict):
             logger.error(f"Job {job_id}: 'settings' should be a dictionary.")
             return {"error": "'settings' should be a dictionary."}
@@ -640,7 +667,17 @@ def process_captioning_v1(video_url, captions, settings, replace, job_id, langua
         # Check font availability
         font_family = style_options.get('font_family', 'Arial')
         available_fonts = get_available_fonts()
-        if font_family not in available_fonts:
+        
+        # Case-insensitive font matching
+        font_found = False
+        for available_font in available_fonts:
+            if font_family.lower() == available_font.lower():
+                # Use the correctly cased font name
+                style_options['font_family'] = available_font
+                font_found = True
+                break
+                
+        if not font_found:
             logger.warning(f"Job {job_id}: Font '{font_family}' not found. Falling back to Arial.")
             style_options['font_family'] = 'Arial'
 
@@ -726,39 +763,75 @@ def process_captioning_v1(video_url, captions, settings, replace, job_id, langua
 
         # Process video with subtitles using FFmpeg
         try:
-            # Escape special characters in the subtitle path for FFmpeg
-            escaped_subtitle_path = subtitle_path.replace('\\', '\\\\').replace(':', '\\:').replace('\'', '\\\'')
-            
-            # Ensure we're using a valid font that's available on the system
-            if subtitle_type == 'ass':
-                # Use the ass filter which is more reliable for ASS subtitles
-                ffmpeg_cmd = (
-                    ffmpeg
-                    .input(video_path)
-                    .output(
-                        output_path,
-                        vf=f"ass='{escaped_subtitle_path}'",
-                        acodec='copy'
-                    )
-                )
+            # Create a more reliable path handling for FFmpeg on Windows
+            # Instead of escaping, use a different approach for Windows
+            if os.name == 'nt':  # Windows system
+                # For Windows, use absolute path with forward slashes
+                normalized_subtitle_path = os.path.abspath(subtitle_path).replace('\\', '/')
                 
-                # Run the command and capture any output
-                logger.info(f"Job {job_id}: Running FFmpeg command with ASS filter")
-                ffmpeg_cmd.run(overwrite_output=True, quiet=False)
+                if subtitle_type == 'ass':
+                    # Use the ass filter with normalized path
+                    ffmpeg_cmd = (
+                        ffmpeg
+                        .input(video_path)
+                        .output(
+                            output_path,
+                            vf=f"ass={normalized_subtitle_path}",
+                            acodec='copy'
+                        )
+                    )
+                    
+                    # Run the command and capture any output
+                    logger.info(f"Job {job_id}: Running FFmpeg command with ASS filter using normalized path: {normalized_subtitle_path}")
+                    ffmpeg_cmd.run(overwrite_output=True, quiet=False)
+                else:
+                    # Fallback to subtitles filter for SRT with normalized path
+                    ffmpeg_cmd = (
+                        ffmpeg
+                        .input(video_path)
+                        .output(
+                            output_path,
+                            vf=f"subtitles={normalized_subtitle_path}",
+                            acodec='copy'
+                        )
+                    )
+                    
+                    logger.info(f"Job {job_id}: Running FFmpeg command with subtitles filter using normalized path: {normalized_subtitle_path}")
+                    ffmpeg_cmd.run(overwrite_output=True, quiet=False)
             else:
-                # Fallback to subtitles filter for SRT
-                ffmpeg_cmd = (
-                    ffmpeg
-                    .input(video_path)
-                    .output(
-                        output_path,
-                        vf=f"subtitles='{escaped_subtitle_path}'",
-                        acodec='copy'
-                    )
-                )
+                # Original code for non-Windows systems
+                # Escape special characters in the subtitle path for FFmpeg
+                escaped_subtitle_path = subtitle_path.replace('\\', '\\\\').replace(':', '\\:').replace('\'', '\\\'')
                 
-                logger.info(f"Job {job_id}: Running FFmpeg command with subtitles filter")
-                ffmpeg_cmd.run(overwrite_output=True, quiet=False)
+                if subtitle_type == 'ass':
+                    # Use the ass filter which is more reliable for ASS subtitles
+                    ffmpeg_cmd = (
+                        ffmpeg
+                        .input(video_path)
+                        .output(
+                            output_path,
+                            vf=f"ass='{escaped_subtitle_path}'",
+                            acodec='copy'
+                        )
+                    )
+                    
+                    # Run the command and capture any output
+                    logger.info(f"Job {job_id}: Running FFmpeg command with ASS filter")
+                    ffmpeg_cmd.run(overwrite_output=True, quiet=False)
+                else:
+                    # Fallback to subtitles filter for SRT
+                    ffmpeg_cmd = (
+                        ffmpeg
+                        .input(video_path)
+                        .output(
+                            output_path,
+                            vf=f"subtitles='{escaped_subtitle_path}'",
+                            acodec='copy'
+                        )
+                    )
+                    
+                    logger.info(f"Job {job_id}: Running FFmpeg command with subtitles filter")
+                    ffmpeg_cmd.run(overwrite_output=True, quiet=False)
         except ffmpeg.Error as e:
             stderr_output = e.stderr.decode('utf8') if e.stderr else 'Unknown error'
             logger.error(f"Job {job_id}: FFmpeg error: {stderr_output}")

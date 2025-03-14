@@ -69,7 +69,8 @@ logger = logging.getLogger(__name__)
         },
         "webhook_url": {"type": "string", "format": "uri"},
         "id": {"type": "string"},
-        "language": {"type": "string"}
+        "language": {"type": "string"},
+        "auto_transcribe": {"type": "boolean"}
     },
     "required": ["video_url"],
     "additionalProperties": False
@@ -83,6 +84,12 @@ def caption_video_v1(job_id, data):
     webhook_url = data.get('webhook_url')
     id = data.get('id')
     language = data.get('language', 'auto')
+    auto_transcribe = data.get('auto_transcribe', False)
+    
+    # If auto_transcribe is true, explicitly set captions to None to force transcription
+    if auto_transcribe:
+        captions = None
+        logger.info(f"Job {job_id}: Auto-transcription requested. Language: {language}")
 
     logger.info(f"Job {job_id}: Received v1 captioning request for {video_url}")
     logger.info(f"Job {job_id}: Settings received: {settings}")
