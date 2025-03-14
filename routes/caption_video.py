@@ -58,11 +58,20 @@ def caption_video(job_id, data):
         caption_type = "srt"
 
     try:
-        output_filename = process_captioning(video_url, captions, caption_type, options, job_id)
+        output_result = process_captioning(video_url, captions, caption_type, options, job_id)
         logger.info(f"Job {job_id}: Captioning process completed successfully")
 
-        # Upload the captioned video using the unified upload_file() method
-        cloud_url = upload_file(output_filename)
+        # Check if the result is a dictionary with a file_url key
+        if isinstance(output_result, dict) and 'file_url' in output_result:
+            cloud_url = output_result['file_url']
+        # Check if the result is a dictionary with an error key
+        elif isinstance(output_result, dict) and 'error' in output_result:
+            logger.error(f"Job {job_id}: Error during captioning process - {output_result['error']}")
+            return output_result['error'], "/caption-video", 500
+        # For backward compatibility, handle string output
+        else:
+            # Upload the captioned video using the unified upload_file() method
+            cloud_url = upload_file(output_result)
 
         logger.info(f"Job {job_id}: Captioned video uploaded to cloud storage: {cloud_url}")
 

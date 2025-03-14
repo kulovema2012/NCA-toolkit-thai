@@ -93,8 +93,10 @@ def get_available_fonts():
             font_names.add(font_name)
         except Exception:
             continue
+    thai_fonts = ["Sarabun", "Garuda", "Loma", "Kinnari", "Norasi", "Sawasdee", 
+                 "Tlwg Typist", "Tlwg Typo", "Waree", "Umpush", "Noto Sans Thai"]
     logger.info(f"Available fonts retrieved: {font_names}")
-    return list(font_names)
+    return list(font_names) + thai_fonts
 
 def format_ass_time(seconds):
     """Convert float seconds to ASS time format H:MM:SS.cc"""
@@ -639,11 +641,10 @@ def process_captioning_v1(video_url, captions, settings, replace, job_id, langua
         font_family = style_options.get('font_family', 'Arial')
         available_fonts = get_available_fonts()
         if font_family not in available_fonts:
-            logger.warning(f"Job {job_id}: Font '{font_family}' not found.")
-            # Return font error with available_fonts
-            return {"error": f"Font '{font_family}' not available.", "available_fonts": available_fonts}
+            logger.warning(f"Job {job_id}: Font '{font_family}' not found. Falling back to Arial.")
+            style_options['font_family'] = 'Arial'
 
-        logger.info(f"Job {job_id}: Font '{font_family}' is available.")
+        logger.info(f"Job {job_id}: Using font '{style_options['font_family']}' for captioning.")
 
         # Determine if captions is a URL or raw content
         if captions and is_url(captions):
@@ -665,7 +666,6 @@ def process_captioning_v1(video_url, captions, settings, replace, job_id, langua
             logger.info(f"Job {job_id}: Video downloaded to {video_path}")
         except Exception as e:
             logger.error(f"Job {job_id}: Video download error: {str(e)}")
-            # For non-font errors, do NOT include available_fonts
             return {"error": str(e)}
 
         # Get video resolution
@@ -707,11 +707,7 @@ def process_captioning_v1(video_url, captions, settings, replace, job_id, langua
         # Check for subtitle processing errors
         if isinstance(subtitle_content, dict) and 'error' in subtitle_content:
             logger.error(f"Job {job_id}: {subtitle_content['error']}")
-            # Only include 'available_fonts' if it's a font-related error
-            if 'available_fonts' in subtitle_content:
-                return {"error": subtitle_content['error'], "available_fonts": subtitle_content.get('available_fonts', [])}
-            else:
-                return {"error": subtitle_content['error']}
+            return {"error": subtitle_content['error']}
 
         # Save the subtitle content
         subtitle_filename = f"{job_id}.{subtitle_type}"
@@ -733,35 +729,49 @@ def process_captioning_v1(video_url, captions, settings, replace, job_id, langua
             # Escape special characters in the subtitle path for FFmpeg
             escaped_subtitle_path = subtitle_path.replace('\\', '\\\\').replace(':', '\\:').replace('\'', '\\\'')
             
+            # Ensure we're using a valid font that's available on the system
             if subtitle_type == 'ass':
                 # Use the ass filter which is more reliable for ASS subtitles
-                ffmpeg.input(video_path).output(
-                    output_path,
-                    vf=f"ass='{escaped_subtitle_path}'",
-                    acodec='copy'
-                ).run(overwrite_output=True, quiet=True)
+                ffmpeg_cmd = (
+                    ffmpeg
+                    .input(video_path)
+                    .output(
+                        output_path,
+                        vf=f"ass='{escaped_subtitle_path}'",
+                        acodec='copy'
+                    )
+                )
+                
+                # Run the command and capture any output
+                logger.info(f"Job {job_id}: Running FFmpeg command with ASS filter")
+                ffmpeg_cmd.run(overwrite_output=True, quiet=False)
             else:
                 # Fallback to subtitles filter for SRT
-                ffmpeg.input(video_path).output(
-                    output_path,
-                    vf=f"subtitles='{escaped_subtitle_path}'",
-                    acodec='copy'
-                ).run(overwrite_output=True, quiet=True)
+                ffmpeg_cmd = (
+                    ffmpeg
+                    .input(video_path)
+                    .output(
+                        output_path,
+                        vf=f"subtitles='{escaped_subtitle_path}'",
+                        acodec='copy'
+                    )
+                )
                 
-            logger.info(f"Job {job_id}: FFmpeg processing completed. Output saved to {output_path}")
-            
-            # Upload the output file to cloud storage
-            try:
-                cloud_url = upload_file(output_path)
-                logger.info(f"Job {job_id}: Uploaded captioned video to {cloud_url}")
-                return output_path
-            except Exception as upload_error:
-                logger.error(f"Job {job_id}: Failed to upload captioned video: {str(upload_error)}")
-                return {"error": f"Failed to upload captioned video: {str(upload_error)}"}
+                logger.info(f"Job {job_id}: Running FFmpeg command with subtitles filter")
+                ffmpeg_cmd.run(overwrite_output=True, quiet=False)
         except ffmpeg.Error as e:
             stderr_output = e.stderr.decode('utf8') if e.stderr else 'Unknown error'
             logger.error(f"Job {job_id}: FFmpeg error: {stderr_output}")
             return {"error": f"FFmpeg error: {stderr_output}"}
+
+        # Upload the output file to cloud storage
+        try:
+            cloud_url = upload_file(output_path)
+            logger.info(f"Job {job_id}: Uploaded captioned video to {cloud_url}")
+            return {"file_url": cloud_url}
+        except Exception as upload_error:
+            logger.error(f"Job {job_id}: Failed to upload captioned video: {str(upload_error)}")
+            return {"error": f"Failed to upload captioned video: {str(upload_error)}"}
 
     except Exception as e:
         logger.error(f"Job {job_id}: Error in process_captioning_v1: {str(e)}", exc_info=True)

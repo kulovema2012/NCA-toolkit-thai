@@ -193,26 +193,20 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 acodec='copy'
             ).run()
             logger.info(f"Job {job_id}: FFmpeg processing completed, output file at {output_path}")
+            return {"file_url": output_path}
         except ffmpeg.Error as e:
             # Log the FFmpeg stderr output
             if e.stderr:
                 error_message = e.stderr.decode('utf8')
             else:
                 error_message = 'Unknown FFmpeg error'
+            
             logger.error(f"Job {job_id}: FFmpeg error: {error_message}")
-            raise
+            raise Exception(f"FFmpeg error: {error_message}")
 
-        # The upload process will be handled by the calling function
-        return output_path
-
-        # Clean up local files
-        os.remove(video_path)
-        os.remove(srt_path)
-        os.remove(output_path)
-        logger.info(f"Job {job_id}: Local files cleaned up")
     except Exception as e:
-        logger.error(f"Job {job_id}: Error in process_captioning: {str(e)}")
-        raise
+        logger.error(f"Job {job_id}: Error in process_captioning: {str(e)}", exc_info=True)
+        return {"error": str(e)}
 
 def convert_array_to_collection(options):
     logger.info(f"Converting options array to dictionary: {options}")
