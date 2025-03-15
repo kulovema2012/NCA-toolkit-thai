@@ -1,10 +1,17 @@
 # Base image
 FROM python:3.9-slim
 
-# Install Thai fonts including Sarabun
-RUN apt-get update && apt-get install -y fonts-thai-tlwg fontconfig && \
-    fc-cache -f -v && \
-    rm -rf /var/lib/apt/lists/*
+# Install Thai fonts and other dependencies
+RUN apt-get update && apt-get install -y \
+    fonts-thai-tlwg \
+    fontconfig \
+    ffmpeg \
+    libsm6 \
+    libxext6 \
+    libatlas-base-dev \
+    gfortran \
+    python3-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 # Install system dependencies, build tools, and libraries
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -165,12 +172,14 @@ WORKDIR /app
 # Copy the requirements file first to optimize caching
 COPY requirements.txt .
 
-# Install dependencies
+# Install dependencies with specific NumPy version
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir numpy && \
+    pip install --no-cache-dir numpy==1.24.3 && \
     pip install --no-cache-dir -r requirements.txt && \
-    pip install openai-whisper && \
-    pip install jsonschema 
+    pip install --no-cache-dir openai-whisper && \
+    pip install --no-cache-dir jsonschema && \
+    # Verify NumPy installation
+    python -c "import numpy; print(f'NumPy version: {numpy.__version__}')"
 
 # Create the appuser 
 RUN useradd -m appuser 
