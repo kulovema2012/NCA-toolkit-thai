@@ -184,7 +184,7 @@ ENV WHISPER_CACHE_DIR=/app/whisper_cache
 USER appuser
 
 # Download the model in a more robust way with error handling
-RUN python -c "import sys; import whisper; try: whisper.load_model('base'); print('Whisper model loaded successfully'); except Exception as e: print(f'Error loading model: {e}', file=sys.stderr); sys.exit(0)"
+RUN echo 'import sys\nimport whisper\ntry:\n    whisper.load_model("base")\n    print("Whisper model loaded successfully")\nexcept Exception as e:\n    print(f"Error loading model: {e}", file=sys.stderr)\n    sys.exit(0)' > /tmp/load_model.py && python /tmp/load_model.py
 
 # Copy the rest of the application code
 COPY --chown=appuser:appuser . .
