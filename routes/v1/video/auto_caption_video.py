@@ -6,6 +6,15 @@ import json
 import logging
 from flask import Blueprint, request, jsonify
 import traceback
+import sys
+
+# Add explicit NumPy import with error handling
+try:
+    import numpy as np
+    NUMPY_AVAILABLE = True
+except ImportError:
+    NUMPY_AVAILABLE = False
+    logging.error("NumPy is not available. This will affect transcription functionality.")
 
 from services.v1.media.media_transcribe import process_transcribe_media
 from services.v1.video.caption_video import add_subtitles_to_video
@@ -16,7 +25,8 @@ logger = logging.getLogger(__name__)
 
 auto_caption_video_bp = Blueprint('auto_caption_video', __name__)
 
-@auto_caption_video_bp.route('/api/v1/video/auto-caption', methods=['POST'])
+# Use only the standard v1 endpoint format
+@auto_caption_video_bp.route('/v1/video/auto-caption', methods=['POST'])
 def auto_caption_video():
     """
     Automatically transcribe a video and add subtitles in one step.
@@ -46,6 +56,13 @@ def auto_caption_video():
     }
     """
     try:
+        # Check if NumPy is available
+        if not NUMPY_AVAILABLE:
+            return jsonify({
+                "status": "error",
+                "message": "NumPy is not available. Please contact the administrator."
+            }), 500
+            
         # Get request data
         data = request.get_json()
         
