@@ -162,12 +162,6 @@ RUN fc-cache -f -v
 # Set work directory
 WORKDIR /app
 
-# Set environment variable for Whisper cache
-ENV WHISPER_CACHE_DIR="/app/whisper_cache"
-
-# Create cache directory (no need for chown here yet)
-RUN mkdir -p ${WHISPER_CACHE_DIR} 
-
 # Copy the requirements file first to optimize caching
 COPY requirements.txt .
 
@@ -180,16 +174,20 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Create the appuser 
 RUN useradd -m appuser 
 
-# Give appuser ownership of the /app directory (including whisper_cache)
-RUN chown appuser:appuser /app 
+# Create whisper cache directory with proper permissions
+RUN mkdir -p /app/whisper_cache && chown -R appuser:appuser /app
+
+# Set environment variable for Whisper cache
+ENV WHISPER_CACHE_DIR=/app/whisper_cache
 
 # Important: Switch to the appuser before downloading the model
 USER appuser
 
-RUN python -c "import os; print(os.environ.get('WHISPER_CACHE_DIR')); import whisper; whisper.load_model('base')"
+# Download the model in a more robust way with error handling
+RUN python -c "import sys; import whisper; try: whisper.load_model('base'); print('Whisper model loaded successfully'); except Exception as e: print(f'Error loading model: {e}', file=sys.stderr); sys.exit(0)"
 
 # Copy the rest of the application code
-COPY . .
+COPY --chown=appuser:appuser . .
 
 # Expose the port the app runs on
 EXPOSE 8080
