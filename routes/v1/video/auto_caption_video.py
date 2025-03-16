@@ -23,6 +23,9 @@ from services.v1.video.caption_video import add_subtitles_to_video
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Define storage path
+STORAGE_PATH = '/tmp/'
+
 auto_caption_video_bp = Blueprint('auto_caption_video', __name__)
 
 # Use only the standard v1 endpoint format
@@ -142,6 +145,38 @@ def auto_caption_video():
         if style == "modern":
             border_style = "3"  # Background box (modern)
         
+        # Generate a unique output path if not provided
+        if not output_path:
+            output_path = os.path.join(STORAGE_PATH, f"{job_id}_captioned.mp4")
+            logger.info(f"Generated output path: {output_path}")
+        
+        # Ensure the output directory exists
+        output_dir = os.path.dirname(output_path)
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+        
+        logger.info(f"Adding subtitles to video: {video_url}")
+        logger.info(f"Using SRT file: {srt_path}")
+        logger.info(f"Output will be saved to: {output_path}")
+        
+        # Verify SRT file content before processing
+        try:
+            with open(srt_path, 'r', encoding='utf-8') as f:
+                srt_content = f.read()
+                if not srt_content.strip():
+                    logger.error("SRT file is empty")
+                    return jsonify({
+                        "status": "error", 
+                        "message": "SRT file is empty"
+                    }), 500
+                logger.info(f"SRT file content verified, size: {len(srt_content)} bytes")
+        except Exception as e:
+            logger.error(f"Error reading SRT file: {str(e)}")
+            return jsonify({
+                "status": "error", 
+                "message": f"Error reading SRT file: {str(e)}"
+            }), 500
+        
         caption_result = add_subtitles_to_video(
             video_path=video_url,
             subtitle_path=srt_path,
@@ -156,6 +191,7 @@ def auto_caption_video():
         )
         
         if not caption_result:
+            logger.error("Failed to add subtitles to video, caption_result is None")
             return jsonify({
                 "status": "error", 
                 "message": "Failed to add subtitles to video"
@@ -164,13 +200,22 @@ def auto_caption_video():
         # Prepare the response
         response = {
             "status": "success",
-            "file_url": caption_result['file_url'] if isinstance(caption_result, dict) else caption_result,
+            "file_url": caption_result['file_url'] if isinstance(caption_result, dict) and 'file_url' in caption_result else caption_result,
             "transcription": {
-                "text": open(text_path, 'r').read(),
-                "segments": json.load(open(segments_path, 'r')),
+                "text": open(text_path, 'r', encoding='utf-8').read() if os.path.exists(text_path) else "",
+                "segments": json.load(open(segments_path, 'r', encoding='utf-8')) if os.path.exists(segments_path) else [],
                 "language": language
             }
         }
+        
+        # Clean up temporary files
+        try:
+            for temp_file in [text_path, srt_path, segments_path]:
+                if temp_file and os.path.exists(temp_file):
+                    os.remove(temp_file)
+                    logger.info(f"Removed temporary file: {temp_file}")
+        except Exception as e:
+            logger.warning(f"Error cleaning up temporary files: {str(e)}")
         
         logger.info(f"Auto-caption job {job_id} completed successfully")
         return jsonify(response), 200

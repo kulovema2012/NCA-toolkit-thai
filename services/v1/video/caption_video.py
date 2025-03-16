@@ -754,14 +754,14 @@ def download_video(url, job_id):
         logger.error(f"Job {job_id}: Error downloading video: {str(e)}")
         raise
 
-def add_subtitles_to_video(video_path, subtitle_path, output_path, job_id=None, 
+def add_subtitles_to_video(video_path, subtitle_path, output_path=None, job_id=None, 
                           font_name="Sarabun", font_size=24, margin_v=30, 
                           subtitle_style="classic", max_width=None, position="bottom"):
     """
     Add subtitles to a video using FFmpeg.
     
     Args:
-        video_path: Path to the input video file
+        video_path: Path to the input video file or URL
         subtitle_path: Path to the subtitle file (SRT format)
         output_path: Path to save the output video
         job_id: Optional job ID for logging
@@ -773,14 +773,47 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path, job_id=None,
         position: Position of subtitles - "bottom", "top", or "middle"
         
     Returns:
-        Path to the output video file with subtitles
+        Dictionary with file_url or direct path to the output video file with subtitles
     """
     logger.info(f"Adding subtitles to video with font: {font_name}, size: {font_size}, style: {subtitle_style}, position: {position}")
     
     try:
+        # Generate a job ID if not provided
+        if not job_id:
+            import uuid
+            job_id = str(uuid.uuid4())
+        
+        # Generate an output path if not provided
+        if not output_path:
+            output_path = os.path.join(STORAGE_PATH, f"{job_id}_captioned.mp4")
+            logger.info(f"Generated output path: {output_path}")
+        
+        # Ensure the output directory exists
+        output_dir = os.path.dirname(output_path)
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+            
+        # Check if video_path is a URL and download it if needed
+        local_video_path = video_path
+        is_remote_video = False
+        
+        if video_path.startswith(('http://', 'https://')):
+            is_remote_video = True
+            logger.info(f"Downloading video from URL: {video_path}")
+            try:
+                local_video_path = download_file(video_path, os.path.join(STORAGE_PATH, 'input_video'))
+                logger.info(f"Video downloaded to: {local_video_path}")
+            except Exception as e:
+                logger.error(f"Failed to download video: {str(e)}")
+                raise ValueError(f"Failed to download video from URL: {str(e)}")
+        
+        # Verify the subtitle file exists
+        if not os.path.exists(subtitle_path):
+            raise FileNotFoundError(f"Subtitle file not found: {subtitle_path}")
+        
         # Fix path handling for Windows
         # Replace backslashes with forward slashes for FFmpeg
-        video_path_escaped = video_path.replace('\\', '/')
+        video_path_escaped = local_video_path.replace('\\', '/')
         subtitle_path_escaped = subtitle_path.replace('\\', '/')
         output_path_escaped = output_path.replace('\\', '/')
         
@@ -859,7 +892,11 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path, job_id=None,
                 ass_path
             ]
             
-            subprocess.run(ffmpeg_convert_cmd, check=True)
+            try:
+                subprocess.run(ffmpeg_convert_cmd, check=True)
+            except subprocess.CalledProcessError as e:
+                logger.error(f"Failed to convert SRT to ASS: {str(e)}")
+                return None
             
             # Modify the ASS file to add custom styling
             try:
@@ -950,9 +987,31 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path, job_id=None,
                 return None
             else:
                 logger.info("Alternative method succeeded")
-                return output_path
         else:
             logger.info("FFmpeg command succeeded")
+        
+        # Clean up temporary files
+        if is_remote_video and os.path.exists(local_video_path):
+            try:
+                os.remove(local_video_path)
+                logger.info(f"Removed temporary video file: {local_video_path}")
+            except Exception as e:
+                logger.warning(f"Failed to remove temporary video file: {str(e)}")
+        
+        # Upload the output file to cloud storage
+        try:
+            from services.cloud_storage import upload_file as upload_to_cloud
+            file_url = upload_to_cloud(output_path)
+            logger.info(f"Uploaded captioned video to cloud storage: {file_url}")
+            
+            # Return a dictionary with the file URL
+            return {
+                "file_url": file_url,
+                "local_path": output_path
+            }
+        except Exception as e:
+            logger.warning(f"Failed to upload to cloud storage: {str(e)}")
+            # If cloud upload fails, return the local path
             return output_path
     
     except Exception as e:
