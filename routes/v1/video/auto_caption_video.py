@@ -105,14 +105,25 @@ def auto_caption_video():
             job_id=job_id
         )
         
-        if not transcribe_result or 'srt_path' not in transcribe_result:
+        logger.info(f"Transcription result: {transcribe_result}")
+        
+        # The process_transcribe_media function returns a tuple of (text_filename, srt_filename, segments_filename)
+        # when response_type is not "direct"
+        if not transcribe_result:
             return jsonify({
                 "status": "error", 
-                "message": "Transcription failed or did not produce SRT file"
+                "message": "Transcription failed"
             }), 500
+            
+        # Unpack the result tuple
+        text_path, srt_path, segments_path = transcribe_result
         
-        # Get the SRT file path from transcription result
-        srt_path = transcribe_result['srt_path']
+        if not srt_path or not os.path.exists(srt_path):
+            logger.error(f"SRT file not found at path: {srt_path}")
+            return jsonify({
+                "status": "error", 
+                "message": "Transcription did not produce SRT file"
+            }), 500
         
         logger.info(f"Transcription successful, SRT file created at: {srt_path}")
         
@@ -155,9 +166,9 @@ def auto_caption_video():
             "status": "success",
             "file_url": caption_result['file_url'] if isinstance(caption_result, dict) else caption_result,
             "transcription": {
-                "text": transcribe_result.get('text', ''),
-                "segments": transcribe_result.get('segments', []),
-                "language": transcribe_result.get('language', language)
+                "text": open(text_path, 'r').read(),
+                "segments": json.load(open(segments_path, 'r')),
+                "language": language
             }
         }
         
