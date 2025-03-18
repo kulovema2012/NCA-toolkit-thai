@@ -196,14 +196,23 @@ def process_script_enhanced_auto_caption(
             "job_id": job_id
         }
         
-        # Add all the settings parameters
-        add_subtitles_params.update(settings)
+        # Add only the supported styling parameters
+        supported_params = {
+            "font_name": settings.get("font_name"),
+            "font_size": settings.get("font_size"),
+            "margin_v": settings.get("margin_v"),
+            "subtitle_style": settings.get("subtitle_style"),
+            "max_width": settings.get("max_width"),
+            "position": settings.get("position")
+        }
         
-        # Make sure we're using the right parameter names
-        if 'subtitle_style' in add_subtitles_params:
-            add_subtitles_params['subtitle_style'] = add_subtitles_params.pop('subtitle_style')
+        # Filter out None values
+        supported_params = {k: v for k, v in supported_params.items() if v is not None}
         
-        # Call add_subtitles_to_video with all parameters
+        # Update the parameters
+        add_subtitles_params.update(supported_params)
+        
+        # Call add_subtitles_to_video with only supported parameters
         caption_result = add_subtitles_to_video(**add_subtitles_params)
         
         # Read the transcription text
