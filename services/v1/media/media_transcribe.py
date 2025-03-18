@@ -116,9 +116,9 @@ def process_transcribe_media(media_url, task, include_text, include_srt, include
 
     try:
         # Determine the appropriate model size based on language
-        # Use large model for Thai language to improve accuracy
+        # Use medium model for Thai language to improve accuracy
         if language and language.lower() in ['th', 'thai']:
-            model_size = "large"
+            model_size = "medium"
             language = "th"  # Explicitly set language to Thai
             logger.info(f"Using large model for Thai language transcription")
             

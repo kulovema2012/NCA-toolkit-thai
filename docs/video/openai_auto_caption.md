@@ -23,7 +23,7 @@ POST /api/v1/video/openai-auto-caption
 |-------------|--------|----------|---------------------------------------------------|-----------|
 | video_url   | string | Yes      | URL of the video to caption                       | -         |
 | language    | string | No       | Language code (e.g., 'th' for Thai)               | 'th'      |
-| font        | string | No       | Font name for subtitles                           | 'Sarabun' |
+| font_name   | string | No       | Font name for subtitles                           | 'Sarabun' |
 | font_size   | number | No       | Font size for subtitles                           | 24        |
 | position    | string | No       | Subtitle position ('top', 'bottom', 'middle')     | 'bottom'  |
 | style       | string | No       | Subtitle style ('classic', 'modern')              | 'classic' |
@@ -35,7 +35,7 @@ POST /api/v1/video/openai-auto-caption
 {
   "video_url": "https://example.com/video.mp4",
   "language": "th",
-  "font": "Sarabun",
+  "font_name": "Sarabun",
   "position": "top",
   "style": "modern",
   "webhook_url": "https://your-webhook-url.com/callback"

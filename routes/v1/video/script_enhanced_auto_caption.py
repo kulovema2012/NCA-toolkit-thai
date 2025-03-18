@@ -25,12 +25,26 @@ def script_enhanced_auto_caption():
         "video_url": "URL of the video to caption",
         "script_text": "The voice-over script text",
         "language": "Language code (e.g., 'th' for Thai)",
-        "font": "Font name for subtitles",
+        "font_name": "Font name for subtitles",
         "font_size": "Font size for subtitles",
         "position": "Subtitle position (top, bottom, middle)",
-        "style": "Subtitle style (classic, modern)",
+        "subtitle_style": "Subtitle style (classic, modern, karaoke, highlight, underline, word_by_word)",
         "output_path": "Output path for the captioned video (optional)",
-        "webhook_url": "Webhook URL for async processing (optional)"
+        "webhook_url": "Webhook URL for async processing (optional)",
+        "margin_v": "Vertical margin from the bottom/top of the frame",
+        "max_width": "Maximum width of subtitle text (in % of video width)",
+        "line_color": "Color for subtitle text",
+        "word_color": "Color for highlighted words",
+        "outline_color": "Color for text outline",
+        "all_caps": "Whether to capitalize all text",
+        "max_words_per_line": "Maximum words per subtitle line",
+        "x": "X position for subtitles",
+        "y": "Y position for subtitles",
+        "alignment": "Text alignment (left, center, right)",
+        "bold": "Whether to use bold text",
+        "italic": "Whether to use italic text",
+        "underline": "Whether to use underlined text",
+        "strikeout": "Whether to use strikeout text"
     }
     """
     try:
@@ -51,11 +65,31 @@ def script_enhanced_auto_caption():
         
         # Get other parameters from request
         language = data.get('language', 'th')
-        font = data.get('font', 'Sarabun')
+        
+        # Basic subtitle parameters
+        font_name = data.get('font_name', 'Sarabun')
         font_size = data.get('font_size', 24)
         position = data.get('position', 'bottom')
-        style = data.get('style', 'classic')
+        subtitle_style = data.get('subtitle_style', 'classic')
+        margin_v = data.get('margin_v', 30)
+        max_width = data.get('max_width')
         output_path = data.get('output_path')
+        
+        # Advanced styling parameters
+        line_color = data.get('line_color')
+        word_color = data.get('word_color')
+        outline_color = data.get('outline_color')
+        all_caps = data.get('all_caps', False)
+        max_words_per_line = data.get('max_words_per_line')
+        x_pos = data.get('x')
+        y_pos = data.get('y')
+        alignment = data.get('alignment', 'center')
+        bold = data.get('bold', False)
+        italic = data.get('italic', False)
+        underline = data.get('underline', False)
+        strikeout = data.get('strikeout', False)
+        
+        # Webhook for async processing
         webhook_url = data.get('webhook_url')
         
         # Generate a unique job ID
@@ -64,6 +98,31 @@ def script_enhanced_auto_caption():
         # Log the request
         logger.info(f"Script-enhanced auto-caption request received for video: {video_url}")
         logger.info(f"Job ID: {job_id}")
+        
+        # Create settings dictionary for all styling parameters
+        settings = {
+            "font_name": font_name,
+            "font_size": font_size,
+            "position": position,
+            "subtitle_style": subtitle_style,
+            "margin_v": margin_v,
+            "max_width": max_width,
+            "line_color": line_color,
+            "word_color": word_color,
+            "outline_color": outline_color,
+            "all_caps": all_caps,
+            "max_words_per_line": max_words_per_line,
+            "x": x_pos,
+            "y": y_pos,
+            "alignment": alignment,
+            "bold": bold,
+            "italic": italic,
+            "underline": underline,
+            "strikeout": strikeout
+        }
+        
+        # Filter out None values
+        settings = {k: v for k, v in settings.items() if v is not None}
         
         # If webhook URL is provided, process asynchronously
         if webhook_url:
@@ -78,7 +137,7 @@ def script_enhanced_auto_caption():
             import threading
             thread = threading.Thread(
                 target=process_script_enhanced_auto_caption,
-                args=(video_url, script_text, language, font, font_size, position, style, output_path, webhook_url, job_id)
+                args=(video_url, script_text, language, settings, output_path, webhook_url, job_id)
             )
             thread.start()
             
@@ -90,7 +149,7 @@ def script_enhanced_auto_caption():
         
         # Process synchronously
         result = process_script_enhanced_auto_caption(
-            video_url, script_text, language, font, font_size, position, style, output_path, None, job_id
+            video_url, script_text, language, settings, output_path, None, job_id
         )
         
         return jsonify(result)
@@ -100,7 +159,7 @@ def script_enhanced_auto_caption():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 def process_script_enhanced_auto_caption(
-    video_url, script_text, language, font, font_size, position, style, output_path, webhook_url, job_id
+    video_url, script_text, language, settings, output_path, webhook_url, job_id
 ):
     """
     Process the script-enhanced auto-caption request.
@@ -109,10 +168,7 @@ def process_script_enhanced_auto_caption(
         video_url: URL of the video to caption
         script_text: The voice-over script text
         language: Language code (e.g., 'th' for Thai)
-        font: Font name for subtitles
-        font_size: Font size for subtitles
-        position: Subtitle position (top, bottom, middle)
-        style: Subtitle style (classic, modern)
+        settings: Dictionary of subtitle styling settings
         output_path: Output path for the captioned video (optional)
         webhook_url: Webhook URL for async processing (optional)
         job_id: Unique job ID
@@ -132,15 +188,23 @@ def process_script_enhanced_auto_caption(
         )
         
         # Step 3: Add subtitles to video
-        caption_result = add_subtitles_to_video(
-            video_path=video_url,
-            subtitle_path=enhanced_srt_path,
-            font=font,
-            font_size=font_size,
-            position=position,
-            style=style,
-            output_path=output_path
-        )
+        # Extract specific parameters needed by add_subtitles_to_video
+        add_subtitles_params = {
+            "video_path": video_url,
+            "subtitle_path": enhanced_srt_path,
+            "output_path": output_path,
+            "job_id": job_id
+        }
+        
+        # Add all the settings parameters
+        add_subtitles_params.update(settings)
+        
+        # Make sure we're using the right parameter names
+        if 'subtitle_style' in add_subtitles_params:
+            add_subtitles_params['subtitle_style'] = add_subtitles_params.pop('subtitle_style')
+        
+        # Call add_subtitles_to_video with all parameters
+        caption_result = add_subtitles_to_video(**add_subtitles_params)
         
         # Read the transcription text
         with open(text_path, 'r', encoding='utf-8') as f:
@@ -160,7 +224,8 @@ def process_script_enhanced_auto_caption(
                 "segments": segments_data,
                 "language": language
             },
-            "script_enhanced": True
+            "script_enhanced": True,
+            "settings": settings
         }
         
         # Send webhook notification if provided

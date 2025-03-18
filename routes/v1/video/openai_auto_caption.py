@@ -24,7 +24,7 @@ def openai_auto_caption():
     {
         "video_url": "URL of the video to caption",
         "language": "Language code (e.g., 'th' for Thai, optional)",
-        "font": "Font name for subtitles (default: Sarabun)",
+        "font_name": "Font name for subtitles (default: Sarabun)",
         "font_size": "Font size for subtitles (default: 24)",
         "position": "Subtitle position (default: bottom)",
         "style": "Subtitle style (default: classic)",
@@ -56,7 +56,7 @@ def openai_auto_caption():
         
         # Get optional parameters
         language = data.get('language', 'th')  # Default to Thai
-        font = data.get('font', 'Sarabun')
+        font_name = data.get('font_name', 'Sarabun')
         font_size = data.get('font_size', 24)
         position = data.get('position', 'bottom')
         style = data.get('style', 'classic')
@@ -93,14 +93,14 @@ def openai_auto_caption():
                     "message": "Transcription produced an empty SRT file"
                 }), 500
         
-        # Step 2: Add subtitles to the video
-        logger.info(f"Adding subtitles to video with font: {font}, position: {position}, style: {style}")
+        # Step 2: Add subtitles to video
+        logger.info(f"Adding subtitles to video with font: {font_name}, position: {position}, style: {style}")
         caption_result = add_subtitles_to_video(
             video_path=video_url,
             subtitle_path=srt_path,
             output_path=output_path,
             job_id=job_id,
-            font_name=font,
+            font_name=font_name,
             font_size=font_size,
             position=position,
             subtitle_style=style
