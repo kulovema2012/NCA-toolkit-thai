@@ -1060,7 +1060,35 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, job_id=N
             ]
             
             ffprobe_output = subprocess.check_output(ffprobe_cmd, stderr=subprocess.STDOUT)
-            video_info = json.loads(ffprobe_output.decode('utf-8'))
+            video_info_raw = json.loads(ffprobe_output.decode('utf-8'))
+            
+            # Process the metadata to ensure it's all serializable
+            video_info = {
+                "format": {},
+                "streams": []
+            }
+            
+            # Process format information
+            if "format" in video_info_raw and isinstance(video_info_raw["format"], dict):
+                for key, value in video_info_raw["format"].items():
+                    # Convert all values to basic Python types
+                    if isinstance(value, (int, float, str, bool, type(None))):
+                        video_info["format"][key] = value
+                    else:
+                        video_info["format"][key] = str(value)
+            
+            # Process stream information
+            if "streams" in video_info_raw and isinstance(video_info_raw["streams"], list):
+                for stream in video_info_raw["streams"]:
+                    if isinstance(stream, dict):
+                        stream_info = {}
+                        for key, value in stream.items():
+                            # Convert all values to basic Python types
+                            if isinstance(value, (int, float, str, bool, type(None))):
+                                stream_info[key] = value
+                            else:
+                                stream_info[key] = str(value)
+                        video_info["streams"].append(stream_info)
             
             # Generate thumbnail
             thumbnail_path = os.path.join(temp_dir, f"thumbnail_{job_id}.jpg")
@@ -1081,7 +1109,7 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, job_id=N
             if upload_to_cloud:
                 from services.cloud_storage import upload_to_cloud_storage
                 thumbnail_url = upload_to_cloud_storage(thumbnail_path, f"thumbnails/{os.path.basename(thumbnail_path)}")
-                video_info["thumbnail_url"] = thumbnail_url
+                video_info["thumbnail_url"] = str(thumbnail_url)
             
         except Exception as e:
             logger.warning(f"Error getting video metadata: {str(e)}")

@@ -265,21 +265,40 @@ def process_script_enhanced_auto_caption(video_url, script_text, language, setti
         # Add optional metadata if available
         if "metadata" in caption_result:
             metadata = caption_result["metadata"]
-            if "format" in metadata:
-                if "duration" in metadata["format"]:
-                    response["duration"] = float(metadata["format"]["duration"])
-                if "bit_rate" in metadata["format"]:
-                    response["bitrate"] = int(metadata["format"]["bit_rate"])
-                if "size" in metadata["format"]:
-                    response["filesize"] = int(metadata["format"]["size"])
-            
-            # Add thumbnail URL if available
-            if "thumbnail_url" in caption_result["metadata"]:
-                response["thumbnail"] = caption_result["metadata"]["thumbnail_url"]
+            if isinstance(metadata, dict):
+                if "format" in metadata:
+                    format_data = metadata["format"]
+                    if isinstance(format_data, dict):
+                        if "duration" in format_data:
+                            response["duration"] = float(format_data["duration"])
+                        if "bit_rate" in format_data:
+                            response["bitrate"] = int(format_data["bit_rate"])
+                        if "size" in format_data:
+                            response["filesize"] = int(format_data["size"])
+                
+                # Add thumbnail URL if available
+                if "thumbnail_url" in metadata:
+                    response["thumbnail"] = metadata["thumbnail_url"]
         
         # Send webhook notification if provided
         if webhook_url:
-            send_webhook(webhook_url, response)
+            try:
+                # Ensure the response is JSON serializable
+                json.dumps(response)
+                send_webhook(webhook_url, response)
+            except TypeError as e:
+                logger.error(f"Webhook data is not JSON serializable: {str(e)}")
+                # Create a simplified version of the response that should be serializable
+                simple_response = {
+                    "code": response.get("code", 200),
+                    "id": response.get("id", "script-enhanced-auto-caption"),
+                    "job_id": response.get("job_id", ""),
+                    "message": response.get("message", "success"),
+                    "file_url": response.get("response", [{}])[0].get("file_url", ""),
+                    "run_time": response.get("run_time", 0),
+                    "total_time": response.get("total_time", 0)
+                }
+                send_webhook(webhook_url, simple_response)
         
         # Return the result
         return jsonify(response)
@@ -298,6 +317,17 @@ def process_script_enhanced_auto_caption(video_url, script_text, language, setti
         }
         
         if webhook_url:
-            send_webhook(webhook_url, error_response)
-            
-        return jsonify(error_response), 500
+            try:
+                # Ensure the error response is JSON serializable
+                json.dumps(error_response)
+                send_webhook(webhook_url, error_response)
+            except TypeError:
+                # Create a simplified version that should be serializable
+                simple_error = {
+                    "code": 500,
+                    "message": "error",
+                    "error": str(e)
+                }
+                send_webhook(webhook_url, simple_error)
+        
+        return jsonify({"message": error_message, "status": "error"}), 500
