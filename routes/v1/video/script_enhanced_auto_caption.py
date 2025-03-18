@@ -132,7 +132,34 @@ def script_enhanced_auto_caption():
         error_message = f"Error in script-enhanced auto-caption processing: {str(e)}"
         logger.error(error_message)
         logger.error(traceback.format_exc())
-        return jsonify({"status": "error", "message": error_message}), 500
+        
+        error_response = {
+            "code": 500,
+            "id": "script-enhanced-auto-caption",
+            "job_id": str(job_id),
+            "message": "error",
+            "error": str(e)
+        }
+        
+        if webhook_url:
+            try:
+                # Send the webhook with a serializable error response
+                send_webhook(webhook_url, error_response)
+            except Exception as webhook_error:
+                logger.error(f"Failed to send error webhook: {str(webhook_error)}")
+                # Create an even more simplified version
+                simple_error = {
+                    "code": 500,
+                    "message": "error",
+                    "error": str(e)
+                }
+                try:
+                    send_webhook(webhook_url, simple_error)
+                except Exception as final_error:
+                    logger.error(f"Failed to send simplified error webhook: {str(final_error)}")
+        
+        # Return a simple error response
+        return jsonify({"message": error_message, "status": "error"}), 500
 
 def process_script_enhanced_auto_caption(video_url, script_text, language, settings, output_path=None, webhook_url=None, job_id=None):
     """
@@ -270,35 +297,67 @@ def process_script_enhanced_auto_caption(video_url, script_text, language, setti
                     format_data = metadata["format"]
                     if isinstance(format_data, dict):
                         if "duration" in format_data:
-                            response["duration"] = float(format_data["duration"])
+                            try:
+                                response["duration"] = float(format_data["duration"])
+                            except (ValueError, TypeError):
+                                response["duration"] = 0.0
                         if "bit_rate" in format_data:
-                            response["bitrate"] = int(format_data["bit_rate"])
+                            try:
+                                response["bitrate"] = int(format_data["bit_rate"])
+                            except (ValueError, TypeError):
+                                response["bitrate"] = 0
                         if "size" in format_data:
-                            response["filesize"] = int(format_data["size"])
+                            try:
+                                response["filesize"] = int(format_data["size"])
+                            except (ValueError, TypeError):
+                                response["filesize"] = 0
                 
                 # Add thumbnail URL if available
                 if "thumbnail_url" in metadata:
-                    response["thumbnail"] = metadata["thumbnail_url"]
+                    response["thumbnail"] = str(metadata["thumbnail_url"])
         
         # Send webhook notification if provided
         if webhook_url:
             try:
-                # Ensure the response is JSON serializable
-                json.dumps(response)
-                send_webhook(webhook_url, response)
-            except TypeError as e:
-                logger.error(f"Webhook data is not JSON serializable: {str(e)}")
-                # Create a simplified version of the response that should be serializable
-                simple_response = {
+                # Create a copy of the response that's guaranteed to be serializable
+                webhook_response = {
                     "code": response.get("code", 200),
                     "id": response.get("id", "script-enhanced-auto-caption"),
-                    "job_id": response.get("job_id", ""),
+                    "job_id": str(response.get("job_id", "")),
                     "message": response.get("message", "success"),
                     "file_url": response.get("response", [{}])[0].get("file_url", ""),
-                    "run_time": response.get("run_time", 0),
-                    "total_time": response.get("total_time", 0)
+                    "run_time": float(response.get("run_time", 0)),
+                    "total_time": float(response.get("total_time", 0))
                 }
-                send_webhook(webhook_url, simple_response)
+                
+                # Add optional fields if they exist
+                if "duration" in response:
+                    webhook_response["duration"] = float(response["duration"])
+                if "bitrate" in response:
+                    webhook_response["bitrate"] = int(response["bitrate"])
+                if "filesize" in response:
+                    webhook_response["filesize"] = int(response["filesize"])
+                if "thumbnail" in response:
+                    webhook_response["thumbnail"] = str(response["thumbnail"])
+                
+                # Send the webhook
+                send_webhook(webhook_url, webhook_response)
+            except Exception as e:
+                logger.error(f"Error sending webhook: {str(e)}")
+                # Create a simplified version of the response that should be serializable
+                simple_response = {
+                    "code": 200,
+                    "id": "script-enhanced-auto-caption",
+                    "job_id": str(job_id),
+                    "message": "success",
+                    "file_url": caption_result.get("file_url", ""),
+                    "run_time": float(round(run_time, 3)),
+                    "total_time": float(round(total_time, 3))
+                }
+                try:
+                    send_webhook(webhook_url, simple_response)
+                except Exception as webhook_error:
+                    logger.error(f"Failed to send simplified webhook: {str(webhook_error)}")
         
         # Return the result
         return jsonify(response)
@@ -311,23 +370,27 @@ def process_script_enhanced_auto_caption(video_url, script_text, language, setti
         error_response = {
             "code": 500,
             "id": "script-enhanced-auto-caption",
-            "job_id": job_id,
+            "job_id": str(job_id),
             "message": "error",
             "error": str(e)
         }
         
         if webhook_url:
             try:
-                # Ensure the error response is JSON serializable
-                json.dumps(error_response)
+                # Send the webhook with a serializable error response
                 send_webhook(webhook_url, error_response)
-            except TypeError:
-                # Create a simplified version that should be serializable
+            except Exception as webhook_error:
+                logger.error(f"Failed to send error webhook: {str(webhook_error)}")
+                # Create an even more simplified version
                 simple_error = {
                     "code": 500,
                     "message": "error",
                     "error": str(e)
                 }
-                send_webhook(webhook_url, simple_error)
+                try:
+                    send_webhook(webhook_url, simple_error)
+                except Exception as final_error:
+                    logger.error(f"Failed to send simplified error webhook: {str(final_error)}")
         
+        # Return a simple error response
         return jsonify({"message": error_message, "status": "error"}), 500
