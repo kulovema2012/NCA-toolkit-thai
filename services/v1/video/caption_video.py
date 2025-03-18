@@ -7,9 +7,13 @@ from datetime import timedelta
 import srt
 import re
 from services.file_management import download_file
-from services.cloud_storage import upload_file  # Ensure this import is present
+from services.cloud_storage import upload_file, upload_to_cloud_storage  # Ensure this import is present
 import requests  # Ensure requests is imported for webhook handling
 from urllib.parse import urlparse
+import tempfile
+import datetime
+import json
+import time
 
 # Initialize logger
 logger = logging.getLogger(__name__)
@@ -756,264 +760,346 @@ def download_video(url, job_id):
 
 def add_subtitles_to_video(video_path, subtitle_path, output_path=None, job_id=None, 
                           font_name="Sarabun", font_size=24, margin_v=30, 
-                          subtitle_style="classic", max_width=None, position="bottom"):
-    """
-    Add subtitles to a video using FFmpeg.
-    
-    Args:
-        video_path: Path to the input video file or URL
-        subtitle_path: Path to the subtitle file (SRT format)
-        output_path: Path to save the output video
-        job_id: Optional job ID for logging
-        font_name: Font name to use for subtitles (default: Sarabun for Thai)
-        font_size: Font size for subtitles (default: 24)
-        margin_v: Vertical margin from the bottom/top of the frame (default: 30)
-        subtitle_style: Style of subtitles - "classic" (with outline) or "modern" (with background)
-        max_width: Maximum width of subtitle text (in % of video width, e.g. 80 for 80%)
-        position: Position of subtitles - "bottom", "top", or "middle"
-        
-    Returns:
-        Dictionary with file_url or direct path to the output video file with subtitles
-    """
-    logger.info(f"Adding subtitles to video with font: {font_name}, size: {font_size}, style: {subtitle_style}, position: {position}")
-    
+                          subtitle_style="classic", max_width=None, position="bottom",
+                          line_color=None, word_color=None, outline_color=None,
+                          all_caps=False, max_words_per_line=None, x=None, y=None,
+                          alignment="center", bold=False, italic=False, underline=False,
+                          strikeout=False):
     try:
+        # Log the input parameters for debugging
+        logger.info(f"Job {job_id}: Adding subtitles to video with parameters:")
+        logger.info(f"Job {job_id}: video_path: {video_path}")
+        logger.info(f"Job {job_id}: subtitle_path: {subtitle_path}")
+        logger.info(f"Job {job_id}: output_path: {output_path}")
+        logger.info(f"Job {job_id}: job_id: {job_id}")
+        logger.info(f"Job {job_id}: font_name: {font_name}")
+        logger.info(f"Job {job_id}: font_size: {font_size}")
+        logger.info(f"Job {job_id}: margin_v: {margin_v}")
+        logger.info(f"Job {job_id}: subtitle_style: {subtitle_style}")
+        logger.info(f"Job {job_id}: max_width: {max_width}")
+        logger.info(f"Job {job_id}: position: {position}")
+        logger.info(f"Job {job_id}: line_color: {line_color}")
+        logger.info(f"Job {job_id}: word_color: {word_color}")
+        logger.info(f"Job {job_id}: outline_color: {outline_color}")
+        logger.info(f"Job {job_id}: all_caps: {all_caps}")
+        logger.info(f"Job {job_id}: max_words_per_line: {max_words_per_line}")
+        logger.info(f"Job {job_id}: x: {x}")
+        logger.info(f"Job {job_id}: y: {y}")
+        logger.info(f"Job {job_id}: alignment: {alignment}")
+        logger.info(f"Job {job_id}: bold: {bold}")
+        logger.info(f"Job {job_id}: italic: {italic}")
+        logger.info(f"Job {job_id}: underline: {underline}")
+        logger.info(f"Job {job_id}: strikeout: {strikeout}")
+
         # Generate a job ID if not provided
         if not job_id:
-            import uuid
-            job_id = str(uuid.uuid4())
+            job_id = f"caption_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
+
+        # Create a temporary directory for processing
+        temp_dir = os.path.join(tempfile.gettempdir(), job_id)
+        os.makedirs(temp_dir, exist_ok=True)
+
+        # Process SRT file to ensure subtitles don't appear before audio starts
+        # This helps with the issue of subtitles appearing at 0.00 seconds
+        modified_srt = os.path.join(temp_dir, f"modified_{job_id}.srt")
+        with open(subtitle_path, 'r', encoding='utf-8') as f:
+            content = f.read()
         
-        # Generate an output path if not provided
-        if not output_path:
-            output_path = os.path.join(STORAGE_PATH, f"{job_id}_captioned.mp4")
-            logger.info(f"Generated output path: {output_path}")
-        
-        # Ensure the output directory exists
-        output_dir = os.path.dirname(output_path)
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
+        # Parse SRT content
+        srt_data = []
+        current_block = {"index": "", "time": "", "text": []}
+        for line in content.split('\n'):
+            line = line.strip()
+            if not line:
+                if current_block["text"]:
+                    srt_data.append(current_block)
+                    current_block = {"index": "", "time": "", "text": []}
+                continue
             
-        # Check if video_path is a URL and download it if needed
-        local_video_path = video_path
-        is_remote_video = False
+            if not current_block["index"]:
+                current_block["index"] = line
+            elif not current_block["time"] and '-->' in line:
+                current_block["time"] = line
+            else:
+                current_block["text"].append(line)
         
-        if video_path.startswith(('http://', 'https://')):
-            is_remote_video = True
-            logger.info(f"Downloading video from URL: {video_path}")
-            try:
-                local_video_path = download_file(video_path, os.path.join(STORAGE_PATH, 'input_video'))
-                logger.info(f"Video downloaded to: {local_video_path}")
-            except Exception as e:
-                logger.error(f"Failed to download video: {str(e)}")
-                raise ValueError(f"Failed to download video from URL: {str(e)}")
+        # Add the last block if it exists
+        if current_block["text"]:
+            srt_data.append(current_block)
         
-        # Verify the subtitle file exists
-        if not os.path.exists(subtitle_path):
-            raise FileNotFoundError(f"Subtitle file not found: {subtitle_path}")
+        # Filter out subtitles with no text and ensure proper timing
+        filtered_srt_data = []
+        min_start_time = 0.8  # Minimum start time in seconds to ensure voice-over has begun
         
-        # Fix path handling for Windows
-        # Replace backslashes with forward slashes for FFmpeg
-        video_path_escaped = local_video_path.replace('\\', '/')
-        subtitle_path_escaped = subtitle_path.replace('\\', '/')
-        output_path_escaped = output_path.replace('\\', '/')
-        
-        # Determine position alignment
-        alignment = "2"  # Default: bottom-center
-        if position == "top":
-            alignment = "8"  # top-center
-        elif position == "middle":
-            alignment = "5"  # middle-center
+        for i, block in enumerate(srt_data):
+            # Skip empty subtitles
+            if not ''.join(block["text"]).strip():
+                continue
+                
+            # Parse time
+            time_parts = block["time"].split('-->')
+            start_time_str = time_parts[0].strip()
+            end_time_str = time_parts[1].strip()
             
-        # Set vertical margin based on position
-        margin_v_param = f"MarginV={margin_v}"
+            # Convert start time to seconds for comparison
+            h, m, s = start_time_str.split(':')
+            s, ms = s.split(',')
+            start_time_seconds = int(h) * 3600 + int(m) * 60 + int(s) + int(ms) / 1000
+            
+            # Ensure first subtitle doesn't start too early
+            if i == 0 and start_time_seconds < min_start_time:
+                # Format new start time
+                total_ms = int(min_start_time * 1000)
+                new_h = total_ms // 3600000
+                new_m = (total_ms % 3600000) // 60000
+                new_s = (total_ms % 60000) // 1000
+                new_ms = total_ms % 1000
+                
+                new_start_time = f"{new_h:02d}:{new_m:02d}:{new_s:02d},{new_ms:03d}"
+                block["time"] = f"{new_start_time} --> {end_time_str}"
+            
+            filtered_srt_data.append(block)
         
-        # Determine style parameters based on style choice
-        if subtitle_style == "modern":
-            # Modern style with semi-transparent background
-            style_params = f"FontName={font_name},FontSize={font_size},PrimaryColour=&H00FFFFFF,BackColour=&H80000000,BorderStyle=1,Outline=0,Shadow=0,{margin_v_param},Alignment={alignment}"
-        else:
-            # Classic style with outline
-            style_params = f"FontName={font_name},FontSize={font_size},PrimaryColour=&H00FFFFFF,OutlineColour=&H000F0F0F,BackColour=&H80000000,BorderStyle=4,Outline=1,Shadow=1,{margin_v_param},Alignment={alignment}"
+        # Write modified SRT
+        with open(modified_srt, 'w', encoding='utf-8') as f:
+            for i, block in enumerate(filtered_srt_data):
+                f.write(f"{i+1}\n")
+                f.write(f"{block['time']}\n")
+                f.write('\n'.join(block["text"]) + '\n\n')
         
-        # Add max width constraint if specified
+        subtitle_path = modified_srt
+        
+        # Process text for all_caps if needed
+        subtitle_filters = []
+        if all_caps:
+            # Create a temporary SRT file with uppercase text
+            original_srt = subtitle_path
+            uppercase_srt = os.path.join(temp_dir, f"uppercase_{job_id}.srt")
+            
+            with open(original_srt, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # Convert text to uppercase while preserving SRT format
+            lines = content.split('\n')
+            for i in range(len(lines)):
+                # Skip timestamp lines and empty lines
+                if '-->' in lines[i] or lines[i].strip() == '' or lines[i].strip().isdigit():
+                    continue
+                lines[i] = lines[i].upper()
+            
+            with open(uppercase_srt, 'w', encoding='utf-8') as f:
+                f.write('\n'.join(lines))
+            
+            subtitle_path = uppercase_srt
+        
+        # Process max_words_per_line if needed
+        if max_words_per_line:
+            # Create a temporary SRT file with limited words per line
+            original_srt = subtitle_path
+            limited_srt = os.path.join(temp_dir, f"limited_{job_id}.srt")
+            
+            with open(original_srt, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # Parse and reformat SRT
+            srt_data = []
+            current_block = {"index": "", "time": "", "text": []}
+            for line in content.split('\n'):
+                line = line.strip()
+                if not line:
+                    if current_block["text"]:
+                        srt_data.append(current_block)
+                        current_block = {"index": "", "time": "", "text": []}
+                    continue
+                
+                if not current_block["index"]:
+                    current_block["index"] = line
+                elif not current_block["time"] and '-->' in line:
+                    current_block["time"] = line
+                else:
+                    current_block["text"].append(line)
+            
+            # Add the last block if it exists
+            if current_block["text"]:
+                srt_data.append(current_block)
+            
+            # Reformat with max words per line
+            with open(limited_srt, 'w', encoding='utf-8') as f:
+                for block in srt_data:
+                    # Join all text lines
+                    text = ' '.join(block["text"])
+                    words = text.split()
+                    
+                    # Split into chunks of max_words_per_line
+                    new_lines = []
+                    for i in range(0, len(words), max_words_per_line):
+                        new_lines.append(' '.join(words[i:i+max_words_per_line]))
+                    
+                    # Write the reformatted block
+                    f.write(block["index"] + '\n')
+                    f.write(block["time"] + '\n')
+                    f.write('\n'.join(new_lines) + '\n\n')
+            
+            subtitle_path = limited_srt
+        
+        # Determine subtitle position and alignment
+        subtitle_position = position
+        if x is not None and y is not None:
+            # Custom position overrides predefined positions
+            subtitle_position = "custom"
+        
+        # Base subtitle filter
+        subtitle_filter = f"subtitles='{subtitle_path}'"
+        
+        # Add font settings
+        subtitle_filter += f":force_style='FontName={font_name},FontSize={font_size}"
+        
+        # Add text formatting
+        if bold:
+            subtitle_filter += ",Bold=1"
+        if italic:
+            subtitle_filter += ",Italic=1"
+        if underline:
+            subtitle_filter += ",Underline=1"
+        if strikeout:
+            subtitle_filter += ",StrikeOut=1"
+        
+        # Add alignment
+        alignment_value = "2"  # Default center
+        if alignment == "left":
+            alignment_value = "1"
+        elif alignment == "right":
+            alignment_value = "3"
+        subtitle_filter += f",Alignment={alignment_value}"
+        
+        # Add colors if specified
+        if line_color:
+            # Remove # if present and ensure it's a valid hex color
+            line_color = line_color.lstrip('#')
+            if len(line_color) == 6:
+                subtitle_filter += f",PrimaryColour=&H{line_color}&"
+        
+        if outline_color:
+            outline_color = outline_color.lstrip('#')
+            if len(outline_color) == 6:
+                subtitle_filter += f",OutlineColour=&H{outline_color}&"
+        
+        if word_color and subtitle_style in ["karaoke", "highlight"]:
+            word_color = word_color.lstrip('#')
+            if len(word_color) == 6:
+                subtitle_filter += f",SecondaryColour=&H{word_color}&"
+        
+        # Add margin based on position - ensure subtitles stay within video frame
+        # Default margin is increased to ensure text is fully visible
+        default_margin_v = max(margin_v, 40)  # Ensure minimum margin of 40 pixels
+        
+        if subtitle_position == "bottom":
+            subtitle_filter += f",MarginV={default_margin_v}"
+        elif subtitle_position == "top":
+            subtitle_filter += f",MarginV={default_margin_v}"
+        elif subtitle_position == "middle":
+            subtitle_filter += f",MarginV=0"
+        elif subtitle_position == "custom" and x is not None and y is not None:
+            subtitle_filter += f",MarginL={x},MarginR=0,MarginV={y}"
+        
+        # Add max width if specified
         if max_width:
-            # Get video dimensions
-            ffprobe_cmd = [
-                "ffprobe",
-                "-v", "error",
-                "-select_streams", "v:0",
-                "-show_entries", "stream=width",
-                "-of", "csv=p=0",
-                video_path_escaped
-            ]
-            
-            try:
-                video_width = int(subprocess.check_output(ffprobe_cmd, universal_newlines=True).strip())
-                # Calculate text width in pixels (approximate)
-                text_width = int(video_width * max_width / 100)
-                # Add text wrapping parameter
-                style_params += f",TextWrapStyle=2,WrapStyle=2,LineSpacing=0.5,MaxWidth={text_width}"
-            except Exception as e:
-                logger.warning(f"Could not determine video width: {str(e)}. Skipping max width constraint.")
+            # Convert percentage to ASS script units
+            subtitle_filter += f",PlayResX=384,PlayResY=288,MarginL={int(384*(100-max_width)/200)},MarginR={int(384*(100-max_width)/200)}"
         
-        # Construct FFmpeg command with proper path formatting and styling
+        # Close the force_style parameter
+        subtitle_filter += "'"
+        
+        # Add the subtitle filter to the list
+        subtitle_filters.append(subtitle_filter)
+        
+        # Combine all filters
+        filter_complex = ','.join(subtitle_filters)
+        
+        # Build the FFmpeg command
         ffmpeg_cmd = [
-            "ffmpeg",
-            "-i", video_path_escaped,
-            "-vf", f"subtitles={subtitle_path_escaped}:force_style='{style_params}'",
+            "ffmpeg", "-y",
+            "-i", video_path,
+            "-filter_complex", filter_complex,
+            "-c:v", "libx264", "-crf", "18",
             "-c:a", "copy",
-            "-y",
-            output_path_escaped
+            "-pix_fmt", "yuv420p",
+            output_path
         ]
         
-        logger.info(f"Running FFmpeg command: {' '.join(ffmpeg_cmd)}")
+        # Log the command
+        logger.info(f"FFmpeg command: {' '.join(ffmpeg_cmd)}")
         
-        # Run FFmpeg command
-        process = subprocess.Popen(
-            ffmpeg_cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            universal_newlines=True
-        )
+        # Execute the command
+        subprocess.run(ffmpeg_cmd, check=True)
         
-        stdout, stderr = process.communicate()
+        # Upload to cloud storage if needed
+        file_url = None
+        upload_to_cloud = is_url(video_path)  # Upload to cloud if input was a URL
         
-        if process.returncode != 0:
-            logger.error(f"FFmpeg error: {stderr}")
-            
-            # Try alternative method with ASS format for better styling control
-            logger.info("Trying alternative method with ASS format")
-            
-            # Convert SRT to ASS with custom styling
-            ass_path = subtitle_path.replace(".srt", ".ass")
-            ffmpeg_convert_cmd = [
-                "ffmpeg",
-                "-i", subtitle_path_escaped,
-                ass_path
-            ]
-            
-            try:
-                subprocess.run(ffmpeg_convert_cmd, check=True)
-            except subprocess.CalledProcessError as e:
-                logger.error(f"Failed to convert SRT to ASS: {str(e)}")
-                return None
-            
-            # Modify the ASS file to add custom styling
-            try:
-                with open(ass_path, "r", encoding="utf-8") as f:
-                    ass_content = f.read()
-                
-                # Add custom style settings
-                style_section = "[V4+ Styles]\n"
-                style_section += "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"
-                
-                # Create style line based on parameters
-                if subtitle_style == "modern":
-                    style_line = f"Style: Default,{font_name},{font_size},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,0,0,{alignment},10,10,{margin_v},1\n\n"
-                else:
-                    style_line = f"Style: Default,{font_name},{font_size},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,4,1,1,{alignment},10,10,{margin_v},1\n\n"
-                
-                style_section += style_line
-                
-                # Replace the style section if it exists
-                if "[V4+ Styles]" in ass_content:
-                    import re
-                    ass_content = re.sub(r'\[V4\+ Styles\].*?\n\n', style_section, ass_content, flags=re.DOTALL)
-                else:
-                    # Add it before the events section
-                    ass_content = ass_content.replace("[Events]", style_section + "[Events]")
-                
-                # Add text wrapping for long lines if max_width is specified
-                if max_width:
-                    try:
-                        # Add line breaks to long dialogue lines
-                        events_section = ass_content.split("[Events]")[1]
-                        dialogue_lines = re.findall(r'(Dialogue:[^\n]+)', events_section)
-                        
-                        for line in dialogue_lines:
-                            # Extract text part
-                            text_parts = line.split(',', 9)
-                            if len(text_parts) >= 10:
-                                text = text_parts[9]
-                                # If text is longer than threshold, add line breaks
-                                if len(text) > 40:
-                                    # Find good breaking points
-                                    words = text.split()
-                                    new_text = ""
-                                    line_length = 0
-                                    
-                                    for word in words:
-                                        if line_length + len(word) > 40:
-                                            new_text += "\\N" + word + " "
-                                            line_length = len(word) + 1
-                                        else:
-                                            new_text += word + " "
-                                            line_length += len(word) + 1
-                                    
-                                    # Replace original text with wrapped text
-                                    new_line = ','.join(text_parts[:9]) + ',' + new_text.strip()
-                                    ass_content = ass_content.replace(line, new_line)
-                    except Exception as e:
-                        logger.warning(f"Error applying text wrapping: {str(e)}")
-                
-                with open(ass_path, "w", encoding="utf-8") as f:
-                    f.write(ass_content)
-            except Exception as e:
-                logger.warning(f"Could not modify ASS file: {str(e)}")
-            
-            # Add ASS subtitles
-            ffmpeg_ass_cmd = [
-                "ffmpeg",
-                "-i", video_path_escaped,
-                "-vf", f"ass={ass_path}",
-                "-c:a", "copy",
-                "-y",
-                output_path_escaped
-            ]
-            
-            logger.info(f"Running alternative FFmpeg command: {' '.join(ffmpeg_ass_cmd)}")
-            
-            process_ass = subprocess.Popen(
-                ffmpeg_ass_cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                universal_newlines=True
-            )
-            
-            stdout_ass, stderr_ass = process_ass.communicate()
-            
-            if process_ass.returncode != 0:
-                logger.error(f"Alternative FFmpeg error: {stderr_ass}")
-                return None
-            else:
-                logger.info("Alternative method succeeded")
+        if upload_to_cloud:
+            # If the input was a URL, upload the output to cloud storage
+            from services.cloud_storage import upload_file
+            file_url = upload_file(output_path)
+            logger.info(f"Uploaded output file to cloud storage: {file_url}")
         else:
-            logger.info("FFmpeg command succeeded")
+            # If the input was a local file, just return the local path
+            file_url = f"file://{output_path}"
         
-        # Clean up temporary files
-        if is_remote_video and os.path.exists(local_video_path):
-            try:
-                os.remove(local_video_path)
-                logger.info(f"Removed temporary video file: {local_video_path}")
-            except Exception as e:
-                logger.warning(f"Failed to remove temporary video file: {str(e)}")
-        
-        # Upload the output file to cloud storage
+        # Extract metadata using ffprobe
+        video_info = {}
         try:
-            from services.cloud_storage import upload_file as upload_to_cloud
-            file_url = upload_to_cloud(output_path)
-            logger.info(f"Uploaded captioned video to cloud storage: {file_url}")
+            # Run ffprobe to get video metadata
+            ffprobe_cmd = [
+                'ffprobe',
+                '-v', 'quiet',
+                '-print_format', 'json',
+                '-show_format',
+                '-show_streams',
+                output_path
+            ]
             
-            # Return a dictionary with the file URL
-            return {
-                "file_url": file_url,
-                "local_path": output_path
-            }
+            ffprobe_output = subprocess.check_output(ffprobe_cmd, stderr=subprocess.STDOUT)
+            video_info = json.loads(ffprobe_output.decode('utf-8'))
+            
+            # Generate thumbnail
+            thumbnail_path = os.path.join(temp_dir, f"thumbnail_{job_id}.jpg")
+            thumbnail_cmd = [
+                "ffmpeg",
+                "-i", output_path,
+                "-ss", "00:00:05",  # Take screenshot at 5 seconds
+                "-vframes", "1",
+                "-vf", "scale=320:-1",  # Scale to width 320px, maintain aspect ratio
+                "-y",
+                thumbnail_path
+            ]
+            
+            subprocess.run(thumbnail_cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            
+            # Upload thumbnail if needed
+            thumbnail_url = None
+            if upload_to_cloud:
+                from services.cloud_storage import upload_to_cloud_storage
+                thumbnail_url = upload_to_cloud_storage(thumbnail_path, f"thumbnails/{os.path.basename(thumbnail_path)}")
+                video_info["thumbnail_url"] = thumbnail_url
+            
         except Exception as e:
-            logger.warning(f"Failed to upload to cloud storage: {str(e)}")
-            # If cloud upload fails, return the local path
-            return output_path
-    
+            logger.warning(f"Error getting video metadata: {str(e)}")
+            video_info = {}
+        
+        # Calculate processing time
+        end_time = time.time()
+        processing_time = end_time - start_time
+        
+        # Return the result
+        result = {
+            "file_url": file_url,
+            "local_path": output_path,
+            "processing_time": processing_time,
+            "metadata": video_info
+        }
+        
+        return result
     except Exception as e:
         logger.error(f"Error adding subtitles: {str(e)}")
         import traceback
@@ -1170,9 +1256,16 @@ def process_captioning_v1(video_url, captions, settings, replace, job_id, langua
 
         # Upload the output file to cloud storage
         try:
-            cloud_url = upload_file(output_path)
-            logger.info(f"Job {job_id}: Uploaded captioned video to {cloud_url}")
-            return {"file_url": cloud_url}
+            file_url = None
+            if is_url(video_path):
+                # If the input was a URL, upload the output to cloud storage
+                from services.cloud_storage import upload_file
+                file_url = upload_file(output_path)
+                logger.info(f"Uploaded output file to cloud storage: {file_url}")
+            else:
+                # If the input was a local file, just return the local path
+                file_url = f"file://{output_path}"
+            return {"file_url": file_url}
         except Exception as upload_error:
             logger.error(f"Job {job_id}: Failed to upload captioned video: {str(upload_error)}")
             return {"error": f"Failed to upload captioned video: {str(upload_error)}"}

@@ -8,6 +8,10 @@ from services.v1.media.script_enhanced_subtitles import align_script_with_subtit
 from services.v1.video.caption_video import add_subtitles_to_video
 from services.webhook import send_webhook
 from services.file_management import download_file
+import time
+import threading
+import tempfile
+import traceback
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -48,103 +52,67 @@ def script_enhanced_auto_caption():
     }
     """
     try:
+        # Start timing
+        start_time = time.time()
+        
         # Get JSON data from request
         data = request.get_json()
         if not data:
             return jsonify({"status": "error", "message": "No JSON data provided"}), 400
         
-        # Get video URL from request
+        # Extract required parameters
         video_url = data.get('video_url')
-        if not video_url:
-            return jsonify({"status": "error", "message": "No video URL provided"}), 400
-        
-        # Get script text from request
         script_text = data.get('script_text')
+        
+        if not video_url:
+            return jsonify({"status": "error", "message": "video_url is required"}), 400
         if not script_text:
-            return jsonify({"status": "error", "message": "No script text provided"}), 400
+            return jsonify({"status": "error", "message": "script_text is required"}), 400
         
-        # Get other parameters from request
-        language = data.get('language', 'th')
-        
-        # Basic subtitle parameters
-        font_name = data.get('font_name', 'Sarabun')
-        font_size = data.get('font_size', 24)
-        position = data.get('position', 'bottom')
-        subtitle_style = data.get('subtitle_style', 'classic')
-        margin_v = data.get('margin_v', 30)
-        max_width = data.get('max_width')
+        # Extract optional parameters
+        language = data.get('language', 'th')  # Default to Thai
+        webhook_url = data.get('webhook_url')
         output_path = data.get('output_path')
         
-        # Advanced styling parameters
-        line_color = data.get('line_color')
-        word_color = data.get('word_color')
-        outline_color = data.get('outline_color')
-        all_caps = data.get('all_caps', False)
-        max_words_per_line = data.get('max_words_per_line')
-        x_pos = data.get('x')
-        y_pos = data.get('y')
-        alignment = data.get('alignment', 'center')
-        bold = data.get('bold', False)
-        italic = data.get('italic', False)
-        underline = data.get('underline', False)
-        strikeout = data.get('strikeout', False)
-        
-        # Webhook for async processing
-        webhook_url = data.get('webhook_url')
-        
-        # Generate a unique job ID
+        # Generate a job ID
         job_id = f"script_enhanced_auto_caption_{datetime.now().strftime('%Y%m%d%H%M%S')}"
         
-        # Log the request
-        logger.info(f"Script-enhanced auto-caption request received for video: {video_url}")
-        logger.info(f"Job ID: {job_id}")
-        
-        # Create settings dictionary for all styling parameters
+        # Extract styling parameters
         settings = {
-            "font_name": font_name,
-            "font_size": font_size,
-            "position": position,
-            "subtitle_style": subtitle_style,
-            "margin_v": margin_v,
-            "max_width": max_width,
-            "line_color": line_color,
-            "word_color": word_color,
-            "outline_color": outline_color,
-            "all_caps": all_caps,
-            "max_words_per_line": max_words_per_line,
-            "x": x_pos,
-            "y": y_pos,
-            "alignment": alignment,
-            "bold": bold,
-            "italic": italic,
-            "underline": underline,
-            "strikeout": strikeout
+            'font_name': data.get('font_name', 'Sarabun'),
+            'font_size': data.get('font_size', 24),
+            'position': data.get('position', 'bottom'),
+            'subtitle_style': data.get('subtitle_style', 'classic'),
+            'margin_v': data.get('margin_v', 30),
+            'max_width': data.get('max_width'),
+            'line_color': data.get('line_color'),
+            'word_color': data.get('word_color'),
+            'outline_color': data.get('outline_color'),
+            'all_caps': data.get('all_caps', False),
+            'max_words_per_line': data.get('max_words_per_line'),
+            'x': data.get('x'),
+            'y': data.get('y'),
+            'alignment': data.get('alignment', 'center'),
+            'bold': data.get('bold', False),
+            'italic': data.get('italic', False),
+            'underline': data.get('underline', False),
+            'strikeout': data.get('strikeout', False)
         }
         
-        # Filter out None values
-        settings = {k: v for k, v in settings.items() if v is not None}
-        
-        # If webhook URL is provided, process asynchronously
+        # If webhook_url is provided, process asynchronously
         if webhook_url:
-            # Send initial webhook notification
-            send_webhook(webhook_url, {
-                "status": "processing",
-                "job_id": job_id,
-                "message": "Script-enhanced auto-caption job started"
-            })
-            
-            # Process asynchronously
-            import threading
-            thread = threading.Thread(
+            # Return a response immediately and continue processing
+            threading.Thread(
                 target=process_script_enhanced_auto_caption,
                 args=(video_url, script_text, language, settings, output_path, webhook_url, job_id)
-            )
-            thread.start()
+            ).start()
             
             return jsonify({
-                "status": "processing",
+                "code": 202,
+                "id": "script-enhanced-auto-caption",
                 "job_id": job_id,
-                "message": "Script-enhanced auto-caption job started"
+                "message": "processing",
+                "status": "Script-enhanced auto-caption job started"
             })
         
         # Process synchronously
@@ -152,40 +120,83 @@ def script_enhanced_auto_caption():
             video_url, script_text, language, settings, output_path, None, job_id
         )
         
+        # Calculate total processing time
+        end_time = time.time()
+        total_time = end_time - start_time
+        run_time = total_time
+        
+        # Return the result
         return jsonify(result)
     
     except Exception as e:
-        logger.error(f"Error in script-enhanced auto-caption: {str(e)}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+        error_message = f"Error in script-enhanced auto-caption processing: {str(e)}"
+        logger.error(error_message)
+        logger.error(traceback.format_exc())
+        return jsonify({"status": "error", "message": error_message}), 500
 
-def process_script_enhanced_auto_caption(
-    video_url, script_text, language, settings, output_path, webhook_url, job_id
-):
+def process_script_enhanced_auto_caption(video_url, script_text, language, settings, output_path=None, webhook_url=None, job_id=None):
     """
-    Process the script-enhanced auto-caption request.
+    Process script-enhanced auto-captioning.
     
     Args:
         video_url: URL of the video to caption
         script_text: The voice-over script text
         language: Language code (e.g., 'th' for Thai)
-        settings: Dictionary of subtitle styling settings
+        settings: Dictionary of styling parameters
         output_path: Output path for the captioned video (optional)
         webhook_url: Webhook URL for async processing (optional)
-        job_id: Unique job ID
+        job_id: Job ID for tracking (optional)
         
     Returns:
-        dict: Result of the auto-caption process
+        JSON response with the URL to the captioned video and processing information
     """
     try:
-        # Step 1: Transcribe with OpenAI
-        text_path, srt_path, segments_path = transcribe_with_openai(
-            video_url, language=language, job_id=job_id
-        )
+        # Start timing
+        start_time = time.time()
         
-        # Step 2: Enhance subtitles with the script
-        enhanced_srt_path = align_script_with_subtitles(
-            script_text, srt_path, srt_path.replace('.srt', '_enhanced.srt')
-        )
+        # Create a temporary directory for processing
+        temp_dir = os.path.join(tempfile.gettempdir(), job_id or "script_enhanced_temp")
+        os.makedirs(temp_dir, exist_ok=True)
+        
+        # Step 1: Transcribe the video using OpenAI Whisper API
+        logger.info(f"Transcribing video: {video_url}")
+        
+        # Download the video if it's a URL
+        local_video_path = os.path.join(temp_dir, "video.mp4")
+        if video_url.startswith(('http://', 'https://')):
+            download_file(video_url, local_video_path)
+        else:
+            local_video_path = video_url
+        
+        # Transcribe using OpenAI Whisper API
+        from services.v1.media.openai_transcribe import transcribe_audio
+        
+        transcription_result = transcribe_audio(local_video_path, language)
+        
+        # Save transcription text and segments
+        text_path = os.path.join(temp_dir, "transcription.txt")
+        segments_path = os.path.join(temp_dir, "segments.json")
+        
+        with open(text_path, 'w', encoding='utf-8') as f:
+            f.write(transcription_result['text'])
+        
+        with open(segments_path, 'w', encoding='utf-8') as f:
+            json.dump(transcription_result['segments'], f, ensure_ascii=False, indent=2)
+        
+        # Step 2: Align script with transcription timing
+        logger.info("Aligning script with transcription timing")
+        
+        # Create enhanced SRT file using script text and transcription timing
+        enhanced_srt_path = os.path.join(temp_dir, "enhanced.srt")
+        
+        # Load segments data
+        with open(segments_path, 'r', encoding='utf-8') as f:
+            segments = json.load(f)
+        
+        # Align script text with segments
+        from services.v1.media.media_transcribe import align_script_with_segments
+        
+        align_script_with_segments(script_text, segments, enhanced_srt_path, language)
         
         # Step 3: Add subtitles to video
         # Extract specific parameters needed by add_subtitles_to_video
@@ -196,14 +207,26 @@ def process_script_enhanced_auto_caption(
             "job_id": job_id
         }
         
-        # Add only the supported styling parameters
+        # Add all styling parameters
         supported_params = {
             "font_name": settings.get("font_name"),
             "font_size": settings.get("font_size"),
             "margin_v": settings.get("margin_v"),
             "subtitle_style": settings.get("subtitle_style"),
             "max_width": settings.get("max_width"),
-            "position": settings.get("position")
+            "position": settings.get("position"),
+            "line_color": settings.get("line_color"),
+            "word_color": settings.get("word_color"),
+            "outline_color": settings.get("outline_color"),
+            "all_caps": settings.get("all_caps"),
+            "max_words_per_line": settings.get("max_words_per_line"),
+            "x": settings.get("x"),
+            "y": settings.get("y"),
+            "alignment": settings.get("alignment"),
+            "bold": settings.get("bold"),
+            "italic": settings.get("italic"),
+            "underline": settings.get("underline"),
+            "strikeout": settings.get("strikeout")
         }
         
         # Filter out None values
@@ -212,50 +235,69 @@ def process_script_enhanced_auto_caption(
         # Update the parameters
         add_subtitles_params.update(supported_params)
         
-        # Call add_subtitles_to_video with only supported parameters
+        # Call add_subtitles_to_video with all parameters
         caption_result = add_subtitles_to_video(**add_subtitles_params)
         
-        # Read the transcription text
-        with open(text_path, 'r', encoding='utf-8') as f:
-            transcription_text = f.read()
+        # Read the enhanced SRT content
+        with open(enhanced_srt_path, 'r', encoding='utf-8') as f:
+            enhanced_srt_content = f.read()
         
-        # Read the segments data
-        with open(segments_path, 'r', encoding='utf-8') as f:
-            segments_data = json.load(f)
+        # Calculate total processing time
+        end_time = time.time()
+        total_time = end_time - start_time
+        run_time = total_time
         
-        # Prepare the result
-        result = {
-            "status": "success",
-            "file_url": caption_result.get('file_url'),
-            "local_path": caption_result.get('local_path'),
-            "transcription": {
-                "text": transcription_text,
-                "segments": segments_data,
-                "language": language
-            },
-            "script_enhanced": True,
-            "settings": settings
+        # Prepare simplified response format
+        response = {
+            "code": 200,
+            "id": "script-enhanced-auto-caption",
+            "job_id": job_id,
+            "message": "success",
+            "response": [
+                {
+                    "file_url": caption_result.get("file_url", "")
+                }
+            ],
+            "run_time": round(run_time, 3),
+            "total_time": round(total_time, 3)
         }
+        
+        # Add optional metadata if available
+        if "metadata" in caption_result:
+            metadata = caption_result["metadata"]
+            if "format" in metadata:
+                if "duration" in metadata["format"]:
+                    response["duration"] = float(metadata["format"]["duration"])
+                if "bit_rate" in metadata["format"]:
+                    response["bitrate"] = int(metadata["format"]["bit_rate"])
+                if "size" in metadata["format"]:
+                    response["filesize"] = int(metadata["format"]["size"])
+            
+            # Add thumbnail URL if available
+            if "thumbnail_url" in caption_result["metadata"]:
+                response["thumbnail"] = caption_result["metadata"]["thumbnail_url"]
         
         # Send webhook notification if provided
         if webhook_url:
-            send_webhook(webhook_url, result)
+            send_webhook(webhook_url, response)
         
-        return result
+        # Return the result
+        return jsonify(response)
     
     except Exception as e:
         error_message = f"Error in script-enhanced auto-caption processing: {str(e)}"
         logger.error(error_message)
+        logger.error(traceback.format_exc())
         
-        # Send webhook notification if provided
-        if webhook_url:
-            send_webhook(webhook_url, {
-                "status": "error",
-                "job_id": job_id,
-                "message": error_message
-            })
-        
-        return {
-            "status": "error",
-            "message": error_message
+        error_response = {
+            "code": 500,
+            "id": "script-enhanced-auto-caption",
+            "job_id": job_id,
+            "message": "error",
+            "error": str(e)
         }
+        
+        if webhook_url:
+            send_webhook(webhook_url, error_response)
+            
+        return jsonify(error_response), 500

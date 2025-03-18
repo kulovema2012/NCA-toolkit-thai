@@ -53,3 +53,35 @@ def upload_file(file_path: str) -> str:
     except Exception as e:
         logger.error(f"Error uploading file to cloud storage: {e}")
         raise
+
+def upload_to_cloud_storage(file_path: str, destination_path: str = None) -> str:
+    """
+    Upload a file to cloud storage with a custom destination path.
+    
+    Args:
+        file_path: Local path to the file to upload
+        destination_path: Optional custom path in the cloud storage bucket
+        
+    Returns:
+        URL to the uploaded file
+    """
+    provider = get_storage_provider()
+    try:
+        logger.info(f"Uploading file to cloud storage: {file_path} -> {destination_path}")
+        
+        if isinstance(provider, GCPStorageProvider):
+            from services.gcp_toolkit import upload_to_gcs_with_path
+            url = upload_to_gcs_with_path(file_path, provider.bucket_name, destination_path)
+        elif isinstance(provider, S3CompatibleProvider):
+            from services.s3_toolkit import upload_to_s3_with_path
+            url = upload_to_s3_with_path(file_path, provider.endpoint_url, provider.access_key, 
+                                        provider.secret_key, destination_path)
+        else:
+            # Fallback to regular upload if custom path not supported
+            url = provider.upload_file(file_path)
+            
+        logger.info(f"File uploaded successfully: {url}")
+        return url
+    except Exception as e:
+        logger.error(f"Error uploading file to cloud storage: {e}")
+        raise
