@@ -13,6 +13,7 @@ google-auth-oauthlib
 google-auth-httplib2
 google-api-python-client
 google-cloud-storage
+google-cloud-secret-manager>=2.0.0
 psutil
 boto3
 Pillow
