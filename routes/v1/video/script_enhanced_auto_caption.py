@@ -198,8 +198,22 @@ def process_script_enhanced_auto_caption(video_url, script_text, language, setti
         # Transcribe using OpenAI Whisper API
         from services.v1.media.openai_transcribe import transcribe_with_openai
         
-        # transcribe_with_openai returns a tuple of (text_file, srt_file, segments_file)
-        text_file, srt_file, segments_file = transcribe_with_openai(local_video_path, language, job_id=job_id)
+        transcription_result = transcribe_with_openai(local_video_path, language, job_id=job_id)
+        
+        # Validate transcription results
+        if not all(transcription_result):
+            raise ValueError("OpenAI transcription failed - missing output files")
+        
+        text_file, srt_file, segments_file = transcription_result
+        
+        # Verify files exist before accessing
+        required_files = {
+            "text_file": text_file,
+            "segments_file": segments_file
+        }
+        for name, path in required_files.items():
+            if not os.path.exists(path):
+                raise FileNotFoundError(f"Transcription {name} not found at: {path}")
         
         # Copy the files to our temp directory
         text_path = os.path.join(temp_dir, "transcription.txt")
