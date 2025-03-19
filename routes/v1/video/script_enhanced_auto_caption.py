@@ -18,7 +18,7 @@ import shutil
 logger = logging.getLogger(__name__)
 
 # Create blueprint
-script_enhanced_auto_caption_bp = Blueprint('script_enhanced_auto_caption', __name__)
+script_enhanced_auto_caption_bp = Blueprint('script_enhanced_auto_caption', __name__, url_prefix='/api/v1/video')
 
 @script_enhanced_auto_caption_bp.route('/script-enhanced-auto-caption', methods=['POST'])
 def script_enhanced_auto_caption():
