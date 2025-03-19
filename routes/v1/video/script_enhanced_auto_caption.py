@@ -196,9 +196,9 @@ def process_script_enhanced_auto_caption(video_url, script_text, language, setti
             local_video_path = video_url
         
         # Transcribe using OpenAI Whisper API
-        from services.v1.media.openai_transcribe import transcribe_audio
+        from services.v1.media.openai_transcribe import transcribe_with_openai
         
-        transcription_result = transcribe_audio(local_video_path, language)
+        transcription_result = transcribe_with_openai(local_video_path, language)
         
         # Save transcription text and segments
         text_path = os.path.join(temp_dir, "transcription.txt")
