@@ -360,7 +360,7 @@ def process_script_enhanced_auto_caption(video_url, script_text, language, setti
                     logger.error(f"Failed to send simplified webhook: {str(webhook_error)}")
         
         # Return the result
-        return jsonify(response)
+        return response
     
     except Exception as e:
         error_message = f"Error in script-enhanced auto-caption processing: {str(e)}"
@@ -392,5 +392,5 @@ def process_script_enhanced_auto_caption(video_url, script_text, language, setti
                 except Exception as final_error:
                     logger.error(f"Failed to send simplified error webhook: {str(final_error)}")
         
-        # Return a simple error response
-        return jsonify({"message": error_message, "status": "error"}), 500
+        # Return a dictionary error response
+        return {"message": error_message, "status": "error"}
