@@ -185,18 +185,25 @@ def process_script_enhanced_auto_caption(video_url, script_text, language, setti
         temp_files.extend([text_path, srt_path, segments_path, enhanced_srt_path, transcription_dir])
         
         # Call OpenAI Whisper API for transcription
-        transcribe_result = transcribe_with_openai(
+        text_file, srt_file, segments_file = transcribe_with_openai(
             local_video_path, 
             language=language,
-            text_path=text_path,
-            srt_path=srt_path,
-            segments_path=segments_path
+            job_id=job_id
         )
         
-        if not transcribe_result or "error" in transcribe_result:
-            error_message = transcribe_result.get("error", "Unknown transcription error") if transcribe_result else "Transcription failed"
+        # Copy the files to our desired locations
+        import shutil
+        shutil.copy(text_file, text_path)
+        shutil.copy(srt_file, srt_path)
+        shutil.copy(segments_file, segments_path)
+        
+        # Add these files to temp_files for cleanup
+        temp_files.extend([text_file, srt_file, segments_file])
+        
+        if not os.path.exists(srt_path) or os.path.getsize(srt_path) == 0:
+            error_message = "Transcription failed: Empty or missing SRT file"
             logger.error(f"Job {job_id}: {error_message}")
-            raise ValueError(f"Transcription error: {error_message}")
+            raise ValueError(error_message)
         
         # Load segments from the JSON file
         if not os.path.exists(segments_path):
