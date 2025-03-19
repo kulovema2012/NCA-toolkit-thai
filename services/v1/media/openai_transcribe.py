@@ -162,4 +162,5 @@ def transcribe_with_openai(media_url, language="th", response_format="verbose_js
             os.remove(input_filename)
             logger.info(f"Removed local file: {input_filename}")
         
-        return None, None, None
+        # Raise a more specific exception instead of returning None values
+        raise ValueError(f"OpenAI transcription failed: {str(e)}")
