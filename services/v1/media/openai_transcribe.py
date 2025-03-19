@@ -51,7 +51,7 @@ def transcribe_with_openai(media_url, language="th", response_format="verbose_js
     Transcribe media using OpenAI's Whisper API.
     
     Args:
-        media_url: URL to the media file
+        media_url: URL or local file path to the media file
         language: Language code (e.g., "th" for Thai)
         response_format: Format of the response from OpenAI API
         job_id: Unique identifier for the job
@@ -64,11 +64,17 @@ def transcribe_with_openai(media_url, language="th", response_format="verbose_js
     if not api_key:
         raise ValueError("OpenAI API key not available. Please set OPENAI_API_KEY environment variable or configure Secret Manager.")
     
-    logger.info(f"Starting OpenAI Whisper transcription for media URL: {media_url}")
+    logger.info(f"Starting OpenAI Whisper transcription for media: {media_url}")
     
-    # Download the media file
-    input_filename = download_file(media_url, os.path.join(STORAGE_PATH, 'input_media'))
-    logger.info(f"Downloaded media to local file: {input_filename}")
+    # Handle both URLs and local file paths
+    if media_url.startswith(('http://', 'https://')):
+        # It's a URL, download the file
+        input_filename = download_file(media_url, os.path.join(STORAGE_PATH, 'input_media'))
+        logger.info(f"Downloaded media to local file: {input_filename}")
+    else:
+        # It's already a local file path
+        input_filename = media_url
+        logger.info(f"Using local file: {input_filename}")
     
     try:
         # Prepare the API request
@@ -140,8 +146,9 @@ def transcribe_with_openai(media_url, language="th", response_format="verbose_js
         logger.info(f"Created segments file: {segments_file}")
         
         # Clean up
-        os.remove(input_filename)
-        logger.info(f"Removed local file: {input_filename}")
+        if not media_url.startswith(('http://', 'https://')):
+            os.remove(input_filename)
+            logger.info(f"Removed local file: {input_filename}")
         
         return text_file, srt_file, segments_file
         
@@ -151,7 +158,7 @@ def transcribe_with_openai(media_url, language="th", response_format="verbose_js
         logger.error(traceback.format_exc())
         
         # Clean up
-        if os.path.exists(input_filename):
+        if media_url.startswith(('http://', 'https://')) and os.path.exists(input_filename):
             os.remove(input_filename)
             logger.info(f"Removed local file: {input_filename}")
         
