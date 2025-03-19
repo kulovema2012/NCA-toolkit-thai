@@ -12,6 +12,7 @@ import time
 import threading
 import tempfile
 import traceback
+import shutil
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -52,204 +53,172 @@ def script_enhanced_auto_caption():
     }
     """
     try:
-        # Start timing
-        start_time = time.time()
+        # Check if request has JSON data
+        if not request.is_json:
+            return jsonify({"status": "error", "message": "Request must be JSON"}), 400
         
-        # Get JSON data from request
+        # Parse request data
         data = request.get_json()
-        if not data:
-            return jsonify({"status": "error", "message": "No JSON data provided"}), 400
         
-        # Extract required parameters
-        video_url = data.get('video_url')
-        script_text = data.get('script_text')
+        # Validate required parameters
+        required_params = ["video_url", "script_text"]
+        for param in required_params:
+            if param not in data:
+                return jsonify({"status": "error", "message": f"Missing required parameter: {param}"}), 400
         
-        if not video_url:
-            return jsonify({"status": "error", "message": "video_url is required"}), 400
-        if not script_text:
-            return jsonify({"status": "error", "message": "script_text is required"}), 400
-        
-        # Extract optional parameters
-        language = data.get('language', 'th')  # Default to Thai
-        webhook_url = data.get('webhook_url')
-        output_path = data.get('output_path')
-        
-        # Generate a job ID
-        job_id = f"script_enhanced_auto_caption_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        # Extract parameters
+        video_url = data.get("video_url")
+        script_text = data.get("script_text")
+        language = data.get("language", "th")  # Default to Thai
+        output_path = data.get("output_path", "")
+        webhook_url = data.get("webhook_url", "")
         
         # Extract styling parameters
-        settings = {
-            'font_name': data.get('font_name', 'Sarabun'),
-            'font_size': data.get('font_size', 24),
-            'position': data.get('position', 'bottom'),
-            'subtitle_style': data.get('subtitle_style', 'classic'),
-            'margin_v': data.get('margin_v', 30),
-            'max_width': data.get('max_width'),
-            'line_color': data.get('line_color'),
-            'word_color': data.get('word_color'),
-            'outline_color': data.get('outline_color'),
-            'all_caps': data.get('all_caps', False),
-            'max_words_per_line': data.get('max_words_per_line'),
-            'x': data.get('x'),
-            'y': data.get('y'),
-            'alignment': data.get('alignment', 'center'),
-            'bold': data.get('bold', False),
-            'italic': data.get('italic', False),
-            'underline': data.get('underline', False),
-            'strikeout': data.get('strikeout', False)
-        }
+        styling_params = {}
+        optional_params = [
+            "font_name", "font_size", "position", "subtitle_style", "margin_v", 
+            "max_width", "line_color", "word_color", "outline_color", "all_caps",
+            "max_words_per_line", "x", "y", "alignment", "bold", "italic", 
+            "underline", "strikeout"
+        ]
         
-        # If webhook_url is provided, process asynchronously
-        if webhook_url:
-            # Return a response immediately and continue processing
-            threading.Thread(
-                target=process_script_enhanced_auto_caption,
-                args=(video_url, script_text, language, settings, output_path, webhook_url, job_id)
-            ).start()
-            
-            return jsonify({
-                "code": 202,
-                "id": "script-enhanced-auto-caption",
-                "job_id": job_id,
-                "message": "processing",
-                "status": "Script-enhanced auto-caption job started"
-            })
+        for param in optional_params:
+            if param in data:
+                styling_params[param] = data[param]
         
-        # Process synchronously
-        result = process_script_enhanced_auto_caption(
-            video_url, script_text, language, settings, output_path, None, job_id
-        )
+        # Generate a job ID if not provided
+        job_id = data.get("job_id", f"script_enhanced_auto_caption_{datetime.now().strftime('%Y%m%d%H%M%S')}")
         
-        # Calculate total processing time
-        end_time = time.time()
-        total_time = end_time - start_time
-        run_time = total_time
-        
-        # Return the result
-        return jsonify(result)
+        # Process the request
+        try:
+            result = process_script_enhanced_auto_caption(
+                video_url=video_url,
+                script_text=script_text,
+                language=language,
+                settings=styling_params,
+                output_path=output_path,
+                webhook_url=webhook_url,
+                job_id=job_id
+            )
+            return jsonify(result)
+        except ValueError as e:
+            logger.error(f"Error in script-enhanced auto-caption processing: {str(e)}")
+            logger.error(traceback.format_exc())
+            return jsonify({"status": "error", "message": str(e)}), 400
+        except Exception as e:
+            logger.error(f"Error in script-enhanced auto-caption processing: {str(e)}")
+            logger.error(traceback.format_exc())
+            return jsonify({"status": "error", "message": f"Error in script-enhanced auto-caption processing: {str(e)}"}), 500
     
     except Exception as e:
-        error_message = f"Error in script-enhanced auto-caption processing: {str(e)}"
-        logger.error(error_message)
+        logger.error(f"Unexpected error in script-enhanced auto-caption endpoint: {str(e)}")
         logger.error(traceback.format_exc())
-        
-        error_response = {
-            "code": 500,
-            "id": "script-enhanced-auto-caption",
-            "job_id": str(job_id),
-            "message": "error",
-            "error": str(e)
-        }
-        
-        if webhook_url:
-            try:
-                # Send the webhook with a serializable error response
-                send_webhook(webhook_url, error_response)
-            except Exception as webhook_error:
-                logger.error(f"Failed to send error webhook: {str(webhook_error)}")
-                # Create an even more simplified version
-                simple_error = {
-                    "code": 500,
-                    "message": "error",
-                    "error": str(e)
-                }
-                try:
-                    send_webhook(webhook_url, simple_error)
-                except Exception as final_error:
-                    logger.error(f"Failed to send simplified error webhook: {str(final_error)}")
-        
-        # Return a simple error response
-        return jsonify({"message": error_message, "status": "error"}), 500
+        return jsonify({"status": "error", "message": f"Unexpected error: {str(e)}"}), 500
 
 def process_script_enhanced_auto_caption(video_url, script_text, language, settings, output_path=None, webhook_url=None, job_id=None):
     """
     Process script-enhanced auto-captioning.
     
     Args:
-        video_url: URL of the video to caption
-        script_text: The voice-over script text
-        language: Language code (e.g., 'th' for Thai)
-        settings: Dictionary of styling parameters
-        output_path: Output path for the captioned video (optional)
-        webhook_url: Webhook URL for async processing (optional)
-        job_id: Job ID for tracking (optional)
+        video_url (str): URL or path to the video file
+        script_text (str): The script text to align with the audio
+        language (str): Language code (e.g., 'th' for Thai)
+        settings (dict): Dictionary of subtitle styling parameters
+        output_path (str, optional): Path to save the output video
+        webhook_url (str, optional): URL to send webhook notifications
+        job_id (str, optional): Job ID for tracking
         
     Returns:
-        JSON response with the URL to the captioned video and processing information
+        dict: Result dictionary with file URL and other metadata
     """
+    # Create a list to track temporary files for cleanup
+    temp_files = []
+    
     try:
         # Start timing
         start_time = time.time()
         
-        # Create a temporary directory for processing
-        temp_dir = os.path.join(tempfile.gettempdir(), job_id or "script_enhanced_temp")
+        # Generate job ID if not provided
+        if not job_id:
+            job_id = f"script_enhanced_auto_caption_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        
+        logger.info(f"Job {job_id}: Starting script-enhanced auto-caption processing")
+        logger.info(f"Job {job_id}: Video URL: {video_url}")
+        logger.info(f"Job {job_id}: Language: {language}")
+        
+        # Create temporary directory for processing
+        temp_dir = os.path.join(tempfile.gettempdir(), f"script_enhanced_auto_caption_{job_id}")
         os.makedirs(temp_dir, exist_ok=True)
         
-        # Step 1: Transcribe the video using OpenAI Whisper API
-        logger.info(f"Transcribing video: {video_url}")
-        
-        # Download the video if it's a URL
-        local_video_path = os.path.join(temp_dir, "video.mp4")
+        # Step 1: Download video if it's a URL
+        local_video_path = None
         if video_url.startswith(('http://', 'https://')):
+            logger.info(f"Job {job_id}: Downloading video from URL")
+            local_video_path = os.path.join(temp_dir, f"video_{job_id}{os.path.splitext(video_url)[1]}")
+            from services.file_management import download_file
             download_file(video_url, local_video_path)
+            temp_files.append(local_video_path)
+            logger.info(f"Job {job_id}: Video downloaded to {local_video_path}")
         else:
             local_video_path = video_url
+            logger.info(f"Job {job_id}: Using local video path: {local_video_path}")
         
-        # Transcribe using OpenAI Whisper API
+        # Determine output path if not provided
+        if not output_path:
+            output_filename = f"captioned_{os.path.basename(local_video_path)}"
+            output_path = os.path.join(temp_dir, output_filename)
+            temp_files.append(output_path)
+        
+        # Step 2: Transcribe the video using OpenAI Whisper API
+        logger.info(f"Job {job_id}: Transcribing video with OpenAI Whisper API")
         from services.v1.media.openai_transcribe import transcribe_with_openai
         
-        transcription_result = transcribe_with_openai(local_video_path, language, job_id=job_id)
+        # Paths for transcription outputs
+        transcription_dir = os.path.join(temp_dir, "transcription")
+        os.makedirs(transcription_dir, exist_ok=True)
         
-        # Validate transcription results
-        if not all(transcription_result):
-            raise ValueError("OpenAI transcription failed - missing output files")
+        text_path = os.path.join(transcription_dir, f"transcription_{job_id}.txt")
+        srt_path = os.path.join(transcription_dir, f"transcription_{job_id}.srt")
+        segments_path = os.path.join(transcription_dir, f"segments_{job_id}.json")
+        enhanced_srt_path = os.path.join(transcription_dir, f"enhanced_{job_id}.srt")
         
-        text_file, srt_file, segments_file = transcription_result
+        temp_files.extend([text_path, srt_path, segments_path, enhanced_srt_path, transcription_dir])
         
-        # Verify files exist before accessing
-        required_files = {
-            "text_file": text_file,
-            "segments_file": segments_file
-        }
-        for name, path in required_files.items():
-            if not os.path.exists(path):
-                raise FileNotFoundError(f"Transcription {name} not found at: {path}")
+        # Call OpenAI Whisper API for transcription
+        transcribe_result = transcribe_with_openai(
+            local_video_path, 
+            language=language,
+            text_path=text_path,
+            srt_path=srt_path,
+            segments_path=segments_path
+        )
         
-        # Copy the files to our temp directory
-        text_path = os.path.join(temp_dir, "transcription.txt")
-        segments_path = os.path.join(temp_dir, "segments.json")
+        if not transcribe_result or "error" in transcribe_result:
+            error_message = transcribe_result.get("error", "Unknown transcription error") if transcribe_result else "Transcription failed"
+            logger.error(f"Job {job_id}: {error_message}")
+            raise ValueError(f"Transcription error: {error_message}")
         
-        # Copy the text file content
-        with open(text_file, 'r', encoding='utf-8') as src:
-            text_content = src.read()
-            with open(text_path, 'w', encoding='utf-8') as dest:
-                dest.write(text_content)
-        
-        # Copy the segments file content
-        with open(segments_file, 'r', encoding='utf-8') as src:
-            segments_content = json.load(src)
-            with open(segments_path, 'w', encoding='utf-8') as dest:
-                json.dump(segments_content, dest, ensure_ascii=False, indent=2)
-        
-        # Step 2: Align script with transcription timing
-        logger.info("Aligning script with transcription timing")
-        
-        # Create enhanced SRT file using script text and transcription timing
-        enhanced_srt_path = os.path.join(temp_dir, "enhanced.srt")
-        
-        # Load segments data
+        # Load segments from the JSON file
+        if not os.path.exists(segments_path):
+            raise ValueError(f"Segments file not found at {segments_path}")
+            
         with open(segments_path, 'r', encoding='utf-8') as f:
             segments = json.load(f)
         
         # Align script text with segments
+        logger.info(f"Job {job_id}: Aligning script with transcription segments")
         from services.v1.media.media_transcribe import align_script_with_segments
         
         align_script_with_segments(script_text, segments, enhanced_srt_path, language)
         
+        if not os.path.exists(enhanced_srt_path):
+            raise ValueError(f"Enhanced SRT file not created at {enhanced_srt_path}")
+        
         # Step 3: Add subtitles to video
+        logger.info(f"Job {job_id}: Adding subtitles to video")
         # Extract specific parameters needed by add_subtitles_to_video
         add_subtitles_params = {
-            "video_path": video_url,
+            "video_path": local_video_path,
             "subtitle_path": enhanced_srt_path,
             "output_path": output_path,
             "job_id": job_id
@@ -257,24 +226,24 @@ def process_script_enhanced_auto_caption(video_url, script_text, language, setti
         
         # Add all styling parameters
         supported_params = {
-            "font_name": settings.get("font_name"),
-            "font_size": settings.get("font_size"),
-            "margin_v": settings.get("margin_v"),
-            "subtitle_style": settings.get("subtitle_style"),
+            "font_name": settings.get("font_name", "Sarabun"),
+            "font_size": settings.get("font_size", 24),
+            "margin_v": settings.get("margin_v", 30),
+            "subtitle_style": settings.get("subtitle_style", "classic"),
             "max_width": settings.get("max_width"),
-            "position": settings.get("position"),
+            "position": settings.get("position", "bottom"),
             "line_color": settings.get("line_color"),
             "word_color": settings.get("word_color"),
             "outline_color": settings.get("outline_color"),
-            "all_caps": settings.get("all_caps"),
+            "all_caps": settings.get("all_caps", False),
             "max_words_per_line": settings.get("max_words_per_line"),
             "x": settings.get("x"),
             "y": settings.get("y"),
-            "alignment": settings.get("alignment"),
-            "bold": settings.get("bold"),
-            "italic": settings.get("italic"),
-            "underline": settings.get("underline"),
-            "strikeout": settings.get("strikeout")
+            "alignment": settings.get("alignment", "center"),
+            "bold": settings.get("bold", False),
+            "italic": settings.get("italic", False),
+            "underline": settings.get("underline", False),
+            "strikeout": settings.get("strikeout", False)
         }
         
         # Filter out None values
@@ -284,7 +253,14 @@ def process_script_enhanced_auto_caption(video_url, script_text, language, setti
         add_subtitles_params.update(supported_params)
         
         # Call add_subtitles_to_video with all parameters
+        from services.v1.video.caption_video import add_subtitles_to_video
         caption_result = add_subtitles_to_video(**add_subtitles_params)
+        
+        # Check if caption_result is None (error occurred in add_subtitles_to_video)
+        if caption_result is None:
+            error_message = f"Failed to add subtitles to video. Check logs for details."
+            logger.error(error_message)
+            raise ValueError(error_message)
         
         # Read the enhanced SRT content
         with open(enhanced_srt_path, 'r', encoding='utf-8') as f:
@@ -295,7 +271,7 @@ def process_script_enhanced_auto_caption(video_url, script_text, language, setti
         total_time = end_time - start_time
         run_time = total_time
         
-        # Prepare simplified response format
+        # Prepare response format that matches the original version
         response = {
             "code": 200,
             "id": "script-enhanced-auto-caption",
@@ -303,7 +279,8 @@ def process_script_enhanced_auto_caption(video_url, script_text, language, setti
             "message": "success",
             "response": [
                 {
-                    "file_url": caption_result.get("file_url", "")
+                    "file_url": caption_result.get("file_url", ""),
+                    "local_path": caption_result.get("local_path", "")
                 }
             ],
             "run_time": round(run_time, 3),
@@ -314,6 +291,7 @@ def process_script_enhanced_auto_caption(video_url, script_text, language, setti
         if "metadata" in caption_result:
             metadata = caption_result["metadata"]
             if isinstance(metadata, dict):
+                # Extract specific metadata fields to match original format
                 if "format" in metadata:
                     format_data = metadata["format"]
                     if isinstance(format_data, dict):
@@ -337,81 +315,45 @@ def process_script_enhanced_auto_caption(video_url, script_text, language, setti
                 if "thumbnail_url" in metadata:
                     response["thumbnail"] = str(metadata["thumbnail_url"])
         
-        # Send webhook notification if provided
+        # Send webhook if provided
         if webhook_url:
             try:
-                # Create a copy of the response that's guaranteed to be serializable
-                webhook_response = {
-                    "code": response.get("code", 200),
-                    "id": response.get("id", "script-enhanced-auto-caption"),
-                    "job_id": str(response.get("job_id", "")),
-                    "message": response.get("message", "success"),
-                    "file_url": response.get("response", [{}])[0].get("file_url", ""),
-                    "run_time": float(response.get("run_time", 0)),
-                    "total_time": float(response.get("total_time", 0))
-                }
-                
-                # Add optional fields if they exist
-                if "duration" in response:
-                    webhook_response["duration"] = float(response["duration"])
-                if "bitrate" in response:
-                    webhook_response["bitrate"] = int(response["bitrate"])
-                if "filesize" in response:
-                    webhook_response["filesize"] = int(response["filesize"])
-                if "thumbnail" in response:
-                    webhook_response["thumbnail"] = str(response["thumbnail"])
-                
-                # Send the webhook
-                send_webhook(webhook_url, webhook_response)
-            except Exception as e:
-                logger.error(f"Error sending webhook: {str(e)}")
-                # Create a simplified version of the response that should be serializable
-                simple_response = {
-                    "code": 200,
-                    "id": "script-enhanced-auto-caption",
-                    "job_id": str(job_id),
-                    "message": "success",
-                    "file_url": caption_result.get("file_url", ""),
-                    "run_time": float(round(run_time, 3)),
-                    "total_time": float(round(total_time, 3))
-                }
-                try:
-                    send_webhook(webhook_url, simple_response)
-                except Exception as webhook_error:
-                    logger.error(f"Failed to send simplified webhook: {str(webhook_error)}")
+                send_webhook(webhook_url, response)
+            except Exception as webhook_error:
+                logger.error(f"Job {job_id}: Failed to send webhook: {str(webhook_error)}")
         
-        # Return the result
         return response
-    
+        
     except Exception as e:
-        error_message = f"Error in script-enhanced auto-caption processing: {str(e)}"
-        logger.error(error_message)
+        logger.error(f"Error in script-enhanced auto-caption processing: {str(e)}")
         logger.error(traceback.format_exc())
         
         error_response = {
             "code": 500,
             "id": "script-enhanced-auto-caption",
-            "job_id": str(job_id),
+            "job_id": job_id,
             "message": "error",
             "error": str(e)
         }
         
+        # Send webhook with error if provided
         if webhook_url:
             try:
-                # Send the webhook with a serializable error response
                 send_webhook(webhook_url, error_response)
             except Exception as webhook_error:
                 logger.error(f"Failed to send error webhook: {str(webhook_error)}")
-                # Create an even more simplified version
-                simple_error = {
-                    "code": 500,
-                    "message": "error",
-                    "error": str(e)
-                }
-                try:
-                    send_webhook(webhook_url, simple_error)
-                except Exception as final_error:
-                    logger.error(f"Failed to send simplified error webhook: {str(final_error)}")
         
-        # Return a dictionary error response
-        return {"message": error_message, "status": "error"}
+        raise ValueError(f"Script-enhanced auto-caption processing error: {str(e)}")
+        
+    finally:
+        # Clean up temporary files
+        try:
+            for temp_file in temp_files:
+                if os.path.exists(temp_file):
+                    if os.path.isdir(temp_file):
+                        shutil.rmtree(temp_file, ignore_errors=True)
+                    else:
+                        os.remove(temp_file)
+            logger.info(f"Job {job_id}: Cleaned up temporary files")
+        except Exception as cleanup_error:
+            logger.warning(f"Job {job_id}: Error during cleanup: {str(cleanup_error)}")
