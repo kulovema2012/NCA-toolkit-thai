@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 # Create blueprint
 script_enhanced_auto_caption_bp = Blueprint('script_enhanced_auto_caption', __name__)
 
-@script_enhanced_auto_caption_bp.route('/api/v1/video/script-enhanced-auto-caption', methods=['POST'])
+@script_enhanced_auto_caption_bp.route('/script-enhanced-auto-caption', methods=['POST'])
 def script_enhanced_auto_caption():
     """
     Auto-caption a video using OpenAI Whisper API for transcription and enhancing with a provided script.
@@ -223,9 +223,9 @@ def process_script_enhanced_auto_caption(video_url, script_text, language, setti
         
         # Step 3: Add subtitles to video
         logger.info(f"Job {job_id}: Adding subtitles to video")
-        # Extract specific parameters needed by add_subtitles_to_video
+        # Prepare parameters for add_subtitles_to_video
         add_subtitles_params = {
-            "video_path": local_video_path,
+            "video_path": local_video_path,  # Make sure we're using the local path
             "subtitle_path": enhanced_srt_path,
             "output_path": output_path,
             "job_id": job_id
@@ -259,6 +259,22 @@ def process_script_enhanced_auto_caption(video_url, script_text, language, setti
         # Update the parameters
         add_subtitles_params.update(supported_params)
         
+        # Verify that the files exist before calling add_subtitles_to_video
+        if not os.path.exists(local_video_path):
+            error_message = f"Video file not found at path: {local_video_path}"
+            logger.error(f"Job {job_id}: {error_message}")
+            raise ValueError(error_message)
+            
+        if not os.path.exists(enhanced_srt_path):
+            error_message = f"Subtitle file not found at path: {enhanced_srt_path}"
+            logger.error(f"Job {job_id}: {error_message}")
+            raise ValueError(error_message)
+        
+        # Log the parameters we're passing to add_subtitles_to_video
+        logger.info(f"Job {job_id}: Calling add_subtitles_to_video with parameters:")
+        for key, value in add_subtitles_params.items():
+            logger.info(f"Job {job_id}: {key}: {value}")
+        
         # Call add_subtitles_to_video with all parameters
         from services.v1.video.caption_video import add_subtitles_to_video
         caption_result = add_subtitles_to_video(**add_subtitles_params)
@@ -266,7 +282,7 @@ def process_script_enhanced_auto_caption(video_url, script_text, language, setti
         # Check if caption_result is None (error occurred in add_subtitles_to_video)
         if caption_result is None:
             error_message = f"Failed to add subtitles to video. Check logs for details."
-            logger.error(error_message)
+            logger.error(f"Job {job_id}: {error_message}")
             raise ValueError(error_message)
         
         # Read the enhanced SRT content

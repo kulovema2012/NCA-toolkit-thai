@@ -43,6 +43,11 @@ def align_script_with_subtitles(script_text: str, srt_file_path: str, output_srt
     # Process the script text
     # Remove extra whitespace and normalize line breaks
     script_text = script_text.strip()
+    
+    # Special handling for Thai text - normalize Unicode characters
+    import unicodedata
+    script_text = unicodedata.normalize('NFC', script_text)
+    
     script_lines = [line.strip() for line in script_text.split('\n') if line.strip()]
     
     # If script is empty, return original SRT
@@ -50,138 +55,198 @@ def align_script_with_subtitles(script_text: str, srt_file_path: str, output_srt
         logger.warning("Script text is empty")
         return srt_file_path
     
-    logger.info(f"Script contains {len(script_lines)} lines")
+    # Join all script lines into a single string for alignment
+    full_script = ' '.join(script_lines)
     
-    # Combine all subtitle text to get the full transcription
-    full_transcription = " ".join(subtitle.content for subtitle in subtitles)
+    # Extract all transcribed text from subtitles
+    transcribed_text = ' '.join([sub.content for sub in subtitles])
     
-    # Combine all script lines to get the full script
-    full_script = " ".join(script_lines)
+    # Special handling for Thai text - normalize Unicode characters
+    transcribed_text = unicodedata.normalize('NFC', transcribed_text)
     
-    # Now we need to align the script with the transcription
-    # We'll use a sequence matcher to find the best alignment
+    logger.info(f"Script length: {len(full_script)} characters")
+    logger.info(f"Transcription length: {len(transcribed_text)} characters")
     
-    # For Thai text, we need to handle it differently than English
-    # We'll use character-level matching instead of word-level
+    # Determine if we're working with Thai text
     is_thai = any('\u0E00' <= c <= '\u0E7F' for c in full_script)
-    
     if is_thai:
         logger.info("Detected Thai text, using character-level alignment")
-        # For Thai, we'll use character-level alignment
-        matcher = difflib.SequenceMatcher(None, full_transcription, full_script)
-        
-        # Get the best alignment
-        enhanced_subtitles = []
-        
-        for subtitle in subtitles:
-            # Find the best match for this subtitle text in the script
-            best_ratio = 0
-            best_match = subtitle.content
-            
-            # Get the start and end position of this subtitle in the full transcription
-            start_pos = full_transcription.find(subtitle.content)
-            if start_pos == -1:
-                # If exact match not found, use fuzzy matching
-                for i in range(len(full_script) - len(subtitle.content) + 1):
-                    script_segment = full_script[i:i+len(subtitle.content)]
-                    ratio = difflib.SequenceMatcher(None, subtitle.content, script_segment).ratio()
-                    if ratio > best_ratio:
-                        best_ratio = ratio
-                        best_match = script_segment
-            else:
-                end_pos = start_pos + len(subtitle.content)
-                
-                # Find the corresponding segment in the script
-                blocks = matcher.get_matching_blocks()
-                script_start = None
-                script_end = None
-                
-                for block in blocks:
-                    trans_idx, script_idx, size = block
-                    if trans_idx <= start_pos < trans_idx + size:
-                        # Found the start position
-                        offset = start_pos - trans_idx
-                        script_start = script_idx + offset
-                    
-                    if trans_idx <= end_pos < trans_idx + size:
-                        # Found the end position
-                        offset = end_pos - trans_idx
-                        script_end = script_idx + offset
-                
-                if script_start is not None and script_end is not None:
-                    best_match = full_script[script_start:script_end]
-            
-            # Create a new subtitle with the enhanced text
-            enhanced_subtitles.append(
-                srt.Subtitle(
-                    index=subtitle.index,
-                    start=subtitle.start,
-                    end=subtitle.end,
-                    content=best_match
-                )
-            )
+        # For Thai, we need to do character-level alignment since Thai doesn't use spaces between words
+        aligned_subtitles = align_thai_text(full_script, subtitles)
     else:
-        # For non-Thai text, we can use word-level alignment
-        logger.info("Using word-level alignment for non-Thai text")
-        
-        # Split into words
-        transcription_words = full_transcription.split()
-        script_words = full_script.split()
-        
-        # Create a sequence matcher
-        matcher = difflib.SequenceMatcher(None, transcription_words, script_words)
-        
-        # Get the matching blocks
-        blocks = matcher.get_matching_blocks()
-        
-        # Create a mapping from transcription word indices to script word indices
-        word_mapping = {}
-        for block in blocks:
-            trans_idx, script_idx, size = block
-            for i in range(size):
-                word_mapping[trans_idx + i] = script_idx + i
-        
-        # Enhance each subtitle
-        enhanced_subtitles = []
-        word_index = 0
-        
-        for subtitle in subtitles:
-            subtitle_words = subtitle.content.split()
-            enhanced_words = []
-            
-            for word in subtitle_words:
-                if word_index in word_mapping:
-                    script_idx = word_mapping[word_index]
-                    if script_idx < len(script_words):
-                        enhanced_words.append(script_words[script_idx])
-                    else:
-                        enhanced_words.append(word)
-                else:
-                    enhanced_words.append(word)
-                word_index += 1
-            
-            # Create a new subtitle with the enhanced text
-            enhanced_subtitles.append(
-                srt.Subtitle(
-                    index=subtitle.index,
-                    start=subtitle.start,
-                    end=subtitle.end,
-                    content=" ".join(enhanced_words)
-                )
-            )
+        # For non-Thai languages, use the standard word-level alignment
+        aligned_subtitles = align_standard_text(full_script, subtitles)
     
-    # Compose the enhanced SRT content
-    enhanced_srt_content = srt.compose(enhanced_subtitles)
-    
-    # Save the enhanced SRT file
+    # Write the enhanced SRT file
     if not output_srt_path:
-        output_srt_path = srt_file_path.replace('.srt', '_enhanced.srt')
+        dir_name = os.path.dirname(srt_file_path)
+        base_name = os.path.basename(srt_file_path)
+        output_srt_path = os.path.join(dir_name, f"enhanced_{base_name}")
     
-    with open(output_srt_path, 'w', encoding='utf-8') as f:
-        f.write(enhanced_srt_content)
+    try:
+        with open(output_srt_path, 'w', encoding='utf-8') as f:
+            f.write(srt.compose(aligned_subtitles))
+        logger.info(f"Enhanced SRT file written to {output_srt_path}")
+    except Exception as e:
+        logger.error(f"Error writing enhanced SRT file: {str(e)}")
+        return srt_file_path
     
-    logger.info(f"Enhanced SRT file saved to {output_srt_path}")
     return output_srt_path
+
+def align_thai_text(script_text: str, subtitles: List[srt.Subtitle]) -> List[srt.Subtitle]:
+    """
+    Align Thai script text with subtitles using character-level alignment.
+    
+    Args:
+        script_text: The Thai script text
+        subtitles: List of subtitle objects
+        
+    Returns:
+        List of aligned subtitle objects
+    """
+    # Create a list to store the aligned subtitles
+    aligned_subtitles = []
+    
+    # Current position in the script text
+    script_pos = 0
+    
+    # Process each subtitle
+    for i, sub in enumerate(subtitles):
+        # Skip empty subtitles
+        if not sub.content.strip():
+            aligned_subtitles.append(sub)
+            continue
+        
+        # Normalize the subtitle content
+        import unicodedata
+        sub_content = unicodedata.normalize('NFC', sub.content.strip())
+        
+        # Find the best match for this subtitle in the script
+        # For Thai, we use a sliding window approach with character-level matching
+        best_match = ""
+        best_score = 0
+        best_pos = script_pos
+        
+        # Try different window sizes around the current position
+        window_size = max(len(sub_content) * 3, 50)  # Larger window for Thai
+        start_pos = max(0, script_pos - window_size)
+        end_pos = min(len(script_text), script_pos + len(sub_content) + window_size)
+        
+        search_text = script_text[start_pos:end_pos]
+        
+        # Use difflib to find the best match
+        matcher = difflib.SequenceMatcher(None, sub_content, search_text)
+        match = matcher.find_longest_match(0, len(sub_content), 0, len(search_text))
+        
+        if match.size > 0:
+            # Calculate the actual position in the full script
+            match_pos = start_pos + match.b
+            match_text = script_text[match_pos:match_pos + match.size]
+            
+            # Expand the match to include more context
+            # This is especially important for Thai where words aren't separated by spaces
+            expanded_start = match_pos
+            expanded_end = match_pos + match.size
+            
+            # Expand backwards
+            while expanded_start > 0 and script_text[expanded_start-1] not in ['.', '!', '?', '\n', '।', '॥', '。', '？', '！', '।', '॥']:
+                expanded_start -= 1
+                
+            # Expand forwards
+            while expanded_end < len(script_text) and script_text[expanded_end] not in ['.', '!', '?', '\n', '।', '॥', '।', '॥', '。', '？', '！', '।', '॥']:
+                expanded_end += 1
+            
+            best_match = script_text[expanded_start:expanded_end]
+            best_pos = expanded_start
+            best_score = match.size / len(sub_content) if len(sub_content) > 0 else 0
+        
+        # If we found a good match, use it
+        if best_score > 0.5:  # Lower threshold for Thai
+            new_sub = srt.Subtitle(
+                index=sub.index,
+                start=sub.start,
+                end=sub.end,
+                content=best_match
+            )
+            aligned_subtitles.append(new_sub)
+            script_pos = best_pos + len(best_match)
+        else:
+            # If no good match, keep the original subtitle
+            aligned_subtitles.append(sub)
+            # Don't advance script_pos in this case
+    
+    return aligned_subtitles
+
+def align_standard_text(script_text: str, subtitles: List[srt.Subtitle]) -> List[srt.Subtitle]:
+    """
+    Align standard (non-Thai) script text with subtitles using word-level alignment.
+    
+    Args:
+        script_text: The script text
+        subtitles: List of subtitle objects
+        
+    Returns:
+        List of aligned subtitle objects
+    """
+    # Create a list to store the aligned subtitles
+    aligned_subtitles = []
+    
+    # Split the script into words
+    script_words = script_text.split()
+    
+    # Current position in the script words
+    script_pos = 0
+    
+    # Process each subtitle
+    for sub in subtitles:
+        # Skip empty subtitles
+        if not sub.content.strip():
+            aligned_subtitles.append(sub)
+            continue
+        
+        # Split the subtitle content into words
+        sub_words = sub.content.split()
+        
+        # Find the best match for this subtitle in the script
+        best_match = ""
+        best_score = 0
+        best_pos = script_pos
+        
+        # Try different positions in the script
+        for pos in range(max(0, script_pos - 10), min(len(script_words), script_pos + len(sub_words) + 10)):
+            # Don't go past the end of the script
+            if pos + len(sub_words) > len(script_words):
+                break
+                
+            # Get the potential match
+            potential_match = ' '.join(script_words[pos:pos + len(sub_words)])
+            
+            # Calculate the similarity score
+            matcher = difflib.SequenceMatcher(None, sub.content.lower(), potential_match.lower())
+            score = matcher.ratio()
+            
+            # Update the best match if this is better
+            if score > best_score:
+                best_match = potential_match
+                best_score = score
+                best_pos = pos
+        
+        # If we found a good match, use it
+        if best_score > 0.6:
+            new_sub = srt.Subtitle(
+                index=sub.index,
+                start=sub.start,
+                end=sub.end,
+                content=best_match
+            )
+            aligned_subtitles.append(new_sub)
+            script_pos = best_pos + len(sub_words)
+        else:
+            # If no good match, keep the original subtitle
+            aligned_subtitles.append(sub)
+            # Don't advance script_pos in this case
+    
+    return aligned_subtitles
 
 def enhance_subtitles_from_segments(script_text: str, segments: List[Dict], output_srt_path: str) -> str:
     """
