@@ -198,17 +198,24 @@ def process_script_enhanced_auto_caption(video_url, script_text, language, setti
         # Transcribe using OpenAI Whisper API
         from services.v1.media.openai_transcribe import transcribe_with_openai
         
-        transcription_result = transcribe_with_openai(local_video_path, language)
+        # transcribe_with_openai returns a tuple of (text_file, srt_file, segments_file)
+        text_file, srt_file, segments_file = transcribe_with_openai(local_video_path, language, job_id=job_id)
         
-        # Save transcription text and segments
+        # Copy the files to our temp directory
         text_path = os.path.join(temp_dir, "transcription.txt")
         segments_path = os.path.join(temp_dir, "segments.json")
         
-        with open(text_path, 'w', encoding='utf-8') as f:
-            f.write(transcription_result['text'])
+        # Copy the text file content
+        with open(text_file, 'r', encoding='utf-8') as src:
+            text_content = src.read()
+            with open(text_path, 'w', encoding='utf-8') as dest:
+                dest.write(text_content)
         
-        with open(segments_path, 'w', encoding='utf-8') as f:
-            json.dump(transcription_result['segments'], f, ensure_ascii=False, indent=2)
+        # Copy the segments file content
+        with open(segments_file, 'r', encoding='utf-8') as src:
+            segments_content = json.load(src)
+            with open(segments_path, 'w', encoding='utf-8') as dest:
+                json.dump(segments_content, dest, ensure_ascii=False, indent=2)
         
         # Step 2: Align script with transcription timing
         logger.info("Aligning script with transcription timing")
