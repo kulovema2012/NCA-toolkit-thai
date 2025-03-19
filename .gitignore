@@ -12,6 +12,10 @@ local_testing/
 thai_test_output/
 test_output/
 original_source/
+test_script_enhanced_caption.py
+test_subtitle_rendering.py
+test_thai_alignment.py
+test_thai_alignment_simple.py
 
 # Python
 __pycache__/
