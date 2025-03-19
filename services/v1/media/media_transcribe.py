@@ -233,3 +233,121 @@ def process_transcribe_media(media_url, task, include_text, include_srt, include
     except Exception as e:
         logger.error(f"{task.capitalize()} failed: {str(e)}")
         raise
+
+def align_script_with_segments(script_text, segments, output_srt_path, language="th"):
+    """
+    Align a pre-written script with the timing information from transcription segments.
+    Optimized for Thai language with character-level alignment.
+    
+    Args:
+        script_text: The pre-written script text
+        segments: The transcription segments with timing information
+        output_srt_path: Path to save the aligned SRT file
+        language: Language code (default: "th" for Thai)
+    
+    Returns:
+        The path to the generated SRT file
+    """
+    logger.info(f"Aligning script with transcription segments for language: {language}")
+    
+    # Clean and normalize the script text
+    if language.lower() in ['th', 'thai']:
+        script_text = postprocess_thai_text(script_text)
+    
+    # Split the script into sentences or natural segments
+    # For Thai, we'll use basic punctuation as segment markers
+    if language.lower() in ['th', 'thai']:
+        # Thai doesn't use spaces between words, so we split by punctuation
+        script_segments = re.split(r'([.!?।॥\n]+)', script_text)
+        # Recombine the split segments with their punctuation
+        script_segments = [''.join(i) for i in zip(script_segments[::2], script_segments[1::2] + [''])]
+        # Remove empty segments
+        script_segments = [seg.strip() for seg in script_segments if seg.strip()]
+    else:
+        # For other languages, split by sentence-ending punctuation
+        script_segments = re.split(r'(?<=[.!?])\s+', script_text)
+        script_segments = [seg.strip() for seg in script_segments if seg.strip()]
+    
+    logger.info(f"Split script into {len(script_segments)} segments")
+    
+    # Prepare the SRT content
+    srt_content = []
+    
+    # If we have very few script segments compared to transcription segments,
+    # we might need to further split the script segments
+    if len(script_segments) < len(segments) / 2:
+        logger.info("Script has fewer segments than transcription, performing character-level alignment")
+        # Character-level alignment approach
+        
+        # Flatten the script into a single string
+        flat_script = ''.join(script_segments)
+        
+        # Calculate total duration of the transcription
+        total_duration = segments[-1]['end'] - segments[0]['start']
+        
+        # Calculate average character duration
+        chars_per_second = len(flat_script) / total_duration
+        
+        # Assign timing to each script segment based on its length
+        current_time = segments[0]['start']
+        
+        for i, segment in enumerate(script_segments):
+            start_time = current_time
+            # Calculate duration based on segment length
+            segment_duration = len(segment) / chars_per_second
+            # Ensure minimum duration
+            segment_duration = max(segment_duration, 1.0)
+            end_time = start_time + segment_duration
+            
+            # Create SRT subtitle entry
+            srt_content.append(
+                srt.Subtitle(
+                    index=i+1,
+                    start=timedelta(seconds=start_time),
+                    end=timedelta(seconds=end_time),
+                    content=segment
+                )
+            )
+            
+            current_time = end_time
+    else:
+        # If script segments are comparable to transcription segments,
+        # use a more direct mapping approach
+        logger.info("Using direct mapping between script and transcription segments")
+        
+        # Calculate how many transcription segments to assign to each script segment
+        segments_per_script = max(1, len(segments) // len(script_segments))
+        
+        for i, script_segment in enumerate(script_segments):
+            # Calculate which transcription segments to use for this script segment
+            start_idx = i * segments_per_script
+            end_idx = min((i + 1) * segments_per_script, len(segments))
+            
+            # If we're at the last script segment, include all remaining transcription segments
+            if i == len(script_segments) - 1:
+                end_idx = len(segments)
+            
+            # Skip if we've run out of transcription segments
+            if start_idx >= len(segments):
+                break
+                
+            # Get timing from transcription segments
+            start_time = segments[start_idx]['start']
+            end_time = segments[end_idx - 1]['end'] if end_idx > 0 and end_idx <= len(segments) else segments[-1]['end']
+            
+            # Create SRT subtitle entry
+            srt_content.append(
+                srt.Subtitle(
+                    index=i+1,
+                    start=timedelta(seconds=start_time),
+                    end=timedelta(seconds=end_time),
+                    content=script_segment
+                )
+            )
+    
+    # Write the SRT file with proper encoding
+    with open(output_srt_path, "w", encoding="utf-8") as f:
+        f.write(srt.compose(srt_content))
+    
+    logger.info(f"Created aligned SRT file: {output_srt_path}")
+    return output_srt_path
