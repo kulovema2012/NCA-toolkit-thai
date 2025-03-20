@@ -796,7 +796,7 @@ def download_video(url, job_id):
         raise
 
 def add_subtitles_to_video(video_path, subtitle_path, output_path=None, job_id=None, 
-                          font_name="Sarabun", font_size=24, margin_v=30, 
+                          font_name="Sarabun", font_size=24, margin_v=40, 
                           subtitle_style="classic", max_width=None, position="bottom",
                           line_color=None, word_color=None, outline_color=None,
                           all_caps=False, max_words_per_line=None, x=None, y=None,
@@ -831,90 +831,97 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, job_id=N
         logger.info(f"Job {job_id}: underline: {underline}")
         logger.info(f"Job {job_id}: strikeout: {strikeout}")
 
-        # Generate a job ID if not provided
-        if not job_id:
-            job_id = f"caption_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
-
-        # Create a temporary directory for processing
-        temp_dir = os.path.join(tempfile.gettempdir(), job_id)
-        os.makedirs(temp_dir, exist_ok=True)
-
-        # Process SRT file to ensure subtitles don't appear before audio starts
-        # This helps with the issue of subtitles appearing at 0.00 seconds
-        modified_srt = os.path.join(temp_dir, f"modified_{job_id}.srt")
-        with open(subtitle_path, 'r', encoding='utf-8') as f:
-            content = f.read()
+        # Check if text contains Thai characters
+        def contains_thai(s):
+            with open(s, 'r', encoding='utf-8') as f:
+                content = f.read()
+            thai_range = range(0x0E00, 0x0E7F)
+            return any(ord(c) in thai_range for c in content)
         
-        # Parse SRT content
-        srt_data = []
-        current_block = {"index": "", "time": "", "text": []}
-        for line in content.split('\n'):
-            line = line.strip()
-            if not line:
-                if current_block["text"]:
-                    srt_data.append(current_block)
-                    current_block = {"index": "", "time": "", "text": []}
-                continue
-            
-            if not current_block["index"]:
-                current_block["index"] = line
-            elif not current_block["time"] and '-->' in line:
-                current_block["time"] = line
-            else:
-                current_block["text"].append(line)
+        is_thai = contains_thai(subtitle_path)
         
-        # Add the last block if it exists
-        if current_block["text"]:
-            srt_data.append(current_block)
-        
-        # Filter out subtitles with no text and ensure proper timing
-        filtered_srt_data = []
-        min_start_time = 0.8  # Minimum start time in seconds to ensure voice-over has begun
-        
-        for i, block in enumerate(srt_data):
-            # Skip empty subtitles
-            if not ''.join(block["text"]).strip():
-                continue
+        # Apply predefined styles
+        if subtitle_style:
+            if subtitle_style == "classic":
+                # Classic style: white text with black outline
+                if not line_color:
+                    line_color = "FFFFFF"  # White
+                if not outline_color:
+                    outline_color = "000000"  # Black
+                if not bold:
+                    bold = True
+                if not max_words_per_line and is_thai:
+                    max_words_per_line = 4
+                if not max_width:
+                    max_width = 80
                 
-            # Parse time
-            time_parts = block["time"].split('-->')
-            start_time_str = time_parts[0].strip()
-            end_time_str = time_parts[1].strip()
-            
-            # Convert start time to seconds for comparison
-            h, m, s = start_time_str.split(':')
-            s, ms = s.split(',')
-            start_time_seconds = int(h) * 3600 + int(m) * 60 + int(s) + int(ms) / 1000
-            
-            # Ensure first subtitle doesn't start too early
-            if i == 0 and start_time_seconds < min_start_time:
-                # Format new start time
-                total_ms = int(min_start_time * 1000)
-                new_h = total_ms // 3600000
-                new_m = (total_ms % 3600000) // 60000
-                new_s = (total_ms % 60000) // 1000
-                new_ms = total_ms % 1000
+            elif subtitle_style == "modern":
+                # Modern style: white text with semi-transparent background
+                if not line_color:
+                    line_color = "FFFFFF"  # White
+                if not outline_color:
+                    outline_color = "000000"  # Black
+                if not font_size:
+                    font_size = 28
+                if not max_words_per_line and is_thai:
+                    max_words_per_line = 3
+                if not max_width:
+                    max_width = 70
+                # Will add background box later
                 
-                new_start_time = f"{new_h:02d}:{new_m:02d}:{new_s:02d},{new_ms:03d}"
-                block["time"] = f"{new_start_time} --> {end_time_str}"
-            
-            filtered_srt_data.append(block)
-        
-        # Write modified SRT
-        with open(modified_srt, 'w', encoding='utf-8') as f:
-            for i, block in enumerate(filtered_srt_data):
-                f.write(f"{i+1}\n")
-                f.write(f"{block['time']}\n")
-                f.write('\n'.join(block["text"]) + '\n\n')
-        
-        subtitle_path = modified_srt
-        
+            elif subtitle_style == "cinematic":
+                # Cinematic style: larger text, bottom position, wider
+                if not line_color:
+                    line_color = "FFFFFF"  # White
+                if not outline_color:
+                    outline_color = "000000"  # Black
+                if not font_size:
+                    font_size = 32
+                if not position:
+                    position = "bottom"
+                if not margin_v:
+                    margin_v = 60
+                if not max_words_per_line and is_thai:
+                    max_words_per_line = 3
+                if not max_width:
+                    max_width = 90
+                if not bold:
+                    bold = True
+                    
+            elif subtitle_style == "minimal":
+                # Minimal style: smaller text, no background
+                if not line_color:
+                    line_color = "FFFFFF"  # White
+                if not outline_color:
+                    outline_color = "000000"  # Black
+                if not font_size:
+                    font_size = 22
+                if not max_words_per_line and is_thai:
+                    max_words_per_line = 5
+                if not max_width:
+                    max_width = 60
+                    
+            elif subtitle_style == "bold":
+                # Bold style: large text with strong outline
+                if not line_color:
+                    line_color = "FFFFFF"  # White
+                if not outline_color:
+                    outline_color = "000000"  # Black
+                if not font_size:
+                    font_size = 30
+                if not bold:
+                    bold = True
+                if not max_words_per_line and is_thai:
+                    max_words_per_line = 3
+                if not max_width:
+                    max_width = 75
+                # Will add thicker outline later
         # Process text for all_caps if needed
         subtitle_filters = []
         if all_caps:
             # Create a temporary SRT file with uppercase text
             original_srt = subtitle_path
-            uppercase_srt = os.path.join(temp_dir, f"uppercase_{job_id}.srt")
+            uppercase_srt = os.path.join(tempfile.gettempdir(), f"uppercase_{job_id}.srt")
             
             with open(original_srt, 'r', encoding='utf-8') as f:
                 content = f.read()
@@ -1046,11 +1053,34 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, job_id=N
             line_color = line_color.lstrip('#')
             if len(line_color) == 6:
                 subtitle_filter += f",PrimaryColour=&H{line_color}&"
+        else:
+            # Default to white text for better visibility
+            subtitle_filter += f",PrimaryColour=&HFFFFFF&"
         
         if outline_color:
             outline_color = outline_color.lstrip('#')
             if len(outline_color) == 6:
                 subtitle_filter += f",OutlineColour=&H{outline_color}&"
+        else:
+            # Default to black outline for better visibility
+            subtitle_filter += f",OutlineColour=&H000000&"
+            
+        # Add shadow and border style based on subtitle style
+        if subtitle_style == "modern":
+            subtitle_filter += ",Shadow=0,BorderStyle=4,Outline=0"  # Box style
+            subtitle_filter += ",BackColour=&H80000000&"  # Semi-transparent black background
+        elif subtitle_style == "cinematic":
+            subtitle_filter += ",Shadow=1,BorderStyle=1,Outline=2"  # Thicker outline
+        elif subtitle_style == "minimal":
+            subtitle_filter += ",Shadow=0,BorderStyle=1,Outline=1"  # Minimal outline
+        elif subtitle_style == "bold":
+            subtitle_filter += ",Shadow=1,BorderStyle=1,Outline=3"  # Very thick outline
+        else:  # classic and default
+            subtitle_filter += ",Shadow=1,BorderStyle=1,Outline=1"  # Standard outline
+            
+        # Add background box for Thai text if needed
+        if is_thai and subtitle_style not in ["minimal"]:
+            subtitle_filter += ",BackColour=&H80000000&"  # Semi-transparent black background
         
         if word_color and subtitle_style in ["karaoke", "highlight"]:
             word_color = word_color.lstrip('#')
@@ -1059,7 +1089,7 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, job_id=N
         
         # Add margin based on position - ensure subtitles stay within video frame
         # Default margin is increased to ensure text is fully visible
-        default_margin_v = max(margin_v, 40)  # Ensure minimum margin of 40 pixels
+        default_margin_v = max(margin_v, 60 if is_thai else 40)  # Ensure minimum margin of 60 pixels for Thai text
         
         if subtitle_position == "bottom":
             subtitle_filter += f",MarginV={default_margin_v}"
@@ -1152,7 +1182,7 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, job_id=N
                         video_info["streams"].append(stream_info)
             
             # Generate thumbnail
-            thumbnail_path = os.path.join(temp_dir, f"thumbnail_{job_id}.jpg")
+            thumbnail_path = os.path.join(tempfile.gettempdir(), f"thumbnail_{job_id}.jpg")
             thumbnail_cmd = [
                 "ffmpeg",
                 "-i", output_path,
