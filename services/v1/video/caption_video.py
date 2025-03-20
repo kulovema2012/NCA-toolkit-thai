@@ -1206,6 +1206,14 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, job_id=N
         
         # Calculate processing time
         end_time = time.time()
+        # Ensure start_time is a float before subtraction
+        if isinstance(start_time, str):
+            try:
+                start_time = float(start_time)
+            except ValueError:
+                # If conversion fails, just use the current time as start time
+                # This means processing_time will be near zero
+                start_time = end_time
         processing_time = end_time - start_time
         
         # Return the result
