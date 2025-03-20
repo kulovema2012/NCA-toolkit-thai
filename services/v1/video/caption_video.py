@@ -766,6 +766,9 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, job_id=N
                           alignment="center", bold=False, italic=False, underline=False,
                           strikeout=False):
     try:
+        # Start timing the processing
+        start_time = time.time()
+        
         # Log the input parameters for debugging
         logger.info(f"Job {job_id}: Adding subtitles to video with parameters:")
         logger.info(f"Job {job_id}: video_path: {video_path}")
@@ -1011,7 +1014,7 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, job_id=N
         subtitle_filter += "'"
         
         # Add the subtitle filter to the list
-        subtitle_filters.append(subtitle_filter)
+        subtitle_filters = [subtitle_filter]
         
         # Combine all filters
         filter_complex = ','.join(subtitle_filters)
