@@ -154,14 +154,29 @@ def process_script_enhanced_auto_caption(video_url, script_text, language, setti
         local_video_path = None
         if video_url.startswith(('http://', 'https://')):
             logger.info(f"Job {job_id}: Downloading video from URL")
-            local_video_path = os.path.join(temp_dir, f"video_{job_id}{os.path.splitext(video_url)[1]}")
+            # Use a consistent filename with .mp4 extension
+            video_filename = f"video_{job_id}.mp4"
+            local_video_path = os.path.join(temp_dir, video_filename)
             from services.file_management import download_file
-            download_file(video_url, local_video_path)
-            temp_files.append(local_video_path)
-            logger.info(f"Job {job_id}: Video downloaded to {local_video_path}")
+            try:
+                download_file(video_url, local_video_path)
+                # Verify the file was downloaded successfully
+                if not os.path.exists(local_video_path) or os.path.getsize(local_video_path) == 0:
+                    raise ValueError(f"Failed to download video from {video_url}")
+                temp_files.append(local_video_path)
+                logger.info(f"Job {job_id}: Video downloaded to {local_video_path}")
+            except Exception as e:
+                error_message = f"Error downloading video from {video_url}: {str(e)}"
+                logger.error(f"Job {job_id}: {error_message}")
+                raise ValueError(error_message)
         else:
             local_video_path = video_url
             logger.info(f"Job {job_id}: Using local video path: {local_video_path}")
+            # Verify the local file exists
+            if not os.path.exists(local_video_path):
+                error_message = f"Local video file not found at path: {local_video_path}"
+                logger.error(f"Job {job_id}: {error_message}")
+                raise ValueError(error_message)
         
         # Determine output path if not provided
         if not output_path:

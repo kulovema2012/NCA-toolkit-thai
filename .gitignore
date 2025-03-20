@@ -4,19 +4,6 @@
 .env
 *.env
 
-# System files
-.DS_Store
-Thumbs.db
-subtitle_test_output/
-local_testing/
-thai_test_output/
-test_output/
-original_source/
-test_script_enhanced_caption.py
-test_subtitle_rendering.py
-test_thai_alignment.py
-test_thai_alignment_simple.py
-
 # Python
 __pycache__/
 *.py[cod]
@@ -55,10 +42,19 @@ logs/
 *.swp
 *.swo
 
-# Test files
-test_ffmpeg_subtitle.py
-test_auto_caption.py
-test_api_subtitle.py
+# System files
+.DS_Store
+Thumbs.db
+local_testing/
+original_source/
+
+# Test files & folders
+test/
+tests/
+*_test.*
+*_tests.*
+test_*.py
+test_*.txt
 
 # Generated media files
 *.mp4
