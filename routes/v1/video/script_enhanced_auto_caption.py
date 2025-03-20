@@ -323,8 +323,7 @@ def process_script_enhanced_auto_caption(video_url, script_text, language, setti
             "message": "success",
             "response": [
                 {
-                    "file_url": caption_result.get("file_url", ""),
-                    "local_path": caption_result.get("local_path", "")
+                    "file_url": caption_result.get("file_url", "")
                 }
             ],
             "run_time": round(run_time, 3),

@@ -1036,18 +1036,11 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, job_id=N
         # Execute the command
         subprocess.run(ffmpeg_cmd, check=True)
         
-        # Upload to cloud storage if needed
+        # Upload to cloud storage
         file_url = None
-        upload_to_cloud = is_url(video_path)  # Upload to cloud if input was a URL
-        
-        if upload_to_cloud:
-            # If the input was a URL, upload the output to cloud storage
-            from services.cloud_storage import upload_file
-            file_url = upload_file(output_path)
-            logger.info(f"Uploaded output file to cloud storage: {file_url}")
-        else:
-            # If the input was a local file, just return the local path
-            file_url = f"file://{output_path}"
+        from services.cloud_storage import upload_file
+        file_url = upload_file(output_path)
+        logger.info(f"Uploaded output file to cloud storage: {file_url}")
         
         # Extract metadata using ffprobe
         video_info = {}
@@ -1107,12 +1100,10 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, job_id=N
             
             subprocess.run(thumbnail_cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             
-            # Upload thumbnail if needed
-            thumbnail_url = None
-            if upload_to_cloud:
-                from services.cloud_storage import upload_to_cloud_storage
-                thumbnail_url = upload_to_cloud_storage(thumbnail_path, f"thumbnails/{os.path.basename(thumbnail_path)}")
-                video_info["thumbnail_url"] = str(thumbnail_url)
+            # Upload thumbnail
+            from services.cloud_storage import upload_to_cloud_storage
+            thumbnail_url = upload_to_cloud_storage(thumbnail_path, f"thumbnails/{os.path.basename(thumbnail_path)}")
+            video_info["thumbnail_url"] = str(thumbnail_url)
             
         except Exception as e:
             logger.warning(f"Error getting video metadata: {str(e)}")
@@ -1288,14 +1279,9 @@ def process_captioning_v1(video_url, captions, settings, replace, job_id, langua
         # Upload the output file to cloud storage
         try:
             file_url = None
-            if is_url(video_path):
-                # If the input was a URL, upload the output to cloud storage
-                from services.cloud_storage import upload_file
-                file_url = upload_file(output_path)
-                logger.info(f"Uploaded output file to cloud storage: {file_url}")
-            else:
-                # If the input was a local file, just return the local path
-                file_url = f"file://{output_path}"
+            from services.cloud_storage import upload_file
+            file_url = upload_file(output_path)
+            logger.info(f"Uploaded output file to cloud storage: {file_url}")
             return {"file_url": file_url}
         except Exception as upload_error:
             logger.error(f"Job {job_id}: Failed to upload captioned video: {str(upload_error)}")
