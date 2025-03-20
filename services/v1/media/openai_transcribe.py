@@ -46,7 +46,7 @@ def get_openai_api_key():
         logger.error(f"Error accessing Secret Manager: {str(e)}")
         return None
 
-def transcribe_with_openai(media_url, language="th", response_format="verbose_json", job_id=None):
+def transcribe_with_openai(media_url, language="th", response_format="verbose_json", job_id=None, preserve_media=False):
     """
     Transcribe media using OpenAI's Whisper API.
     
@@ -55,9 +55,10 @@ def transcribe_with_openai(media_url, language="th", response_format="verbose_js
         language: Language code (e.g., "th" for Thai)
         response_format: Format of the response from OpenAI API
         job_id: Unique identifier for the job
+        preserve_media: If True, don't delete the media file after transcription
         
     Returns:
-        tuple: (text_file_path, srt_file_path, segments_file_path)
+        tuple: (text_file_path, srt_file_path, segments_file_path, media_file_path)
     """
     # Get API key securely
     api_key = get_openai_api_key()
@@ -145,22 +146,27 @@ def transcribe_with_openai(media_url, language="th", response_format="verbose_js
             json.dump(result["segments"], f, ensure_ascii=False, indent=2)
         logger.info(f"Created segments file: {segments_file}")
         
-        # Clean up
-        if not media_url.startswith(('http://', 'https://')):
-            os.remove(input_filename)
-            logger.info(f"Removed local file: {input_filename}")
+        # Clean up only if preserve_media is False
+        if not preserve_media:
+            if not media_url.startswith(('http://', 'https://')):
+                os.remove(input_filename)
+                logger.info(f"Removed local file: {input_filename}")
+        else:
+            logger.info(f"Preserving media file for further processing: {input_filename}")
         
-        return text_file, srt_file, segments_file
+        # Return the input_filename as well so it can be used for further processing
+        return text_file, srt_file, segments_file, input_filename
         
     except Exception as e:
         logger.error(f"OpenAI transcription failed: {str(e)}")
         import traceback
         logger.error(traceback.format_exc())
         
-        # Clean up
-        if media_url.startswith(('http://', 'https://')) and os.path.exists(input_filename):
-            os.remove(input_filename)
-            logger.info(f"Removed local file: {input_filename}")
+        # Clean up only if preserve_media is False
+        if not preserve_media:
+            if media_url.startswith(('http://', 'https://')) and os.path.exists(input_filename):
+                os.remove(input_filename)
+                logger.info(f"Removed local file: {input_filename}")
         
         # Raise a more specific exception instead of returning None values
         raise ValueError(f"OpenAI transcription failed: {str(e)}")

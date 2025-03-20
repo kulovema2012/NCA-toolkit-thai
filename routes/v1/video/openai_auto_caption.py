@@ -68,11 +68,12 @@ def openai_auto_caption():
         
         # Step 1: Transcribe the video using OpenAI Whisper API
         logger.info(f"Transcribing video with OpenAI Whisper API, language: {language}")
-        text_path, srt_path, segments_path = transcribe_with_openai(
+        text_path, srt_path, segments_path, media_file_path = transcribe_with_openai(
             video_url, 
             language=language,
             response_format="verbose_json",
-            job_id=job_id
+            job_id=job_id,
+            preserve_media=True  # Keep the media file for subtitle addition
         )
         
         # Check if transcription was successful
@@ -96,7 +97,7 @@ def openai_auto_caption():
         # Step 2: Add subtitles to video
         logger.info(f"Adding subtitles to video with font: {font_name}, position: {position}, style: {style}")
         caption_result = add_subtitles_to_video(
-            video_path=video_url,
+            video_path=media_file_path,  # Use the media file path returned from transcription
             subtitle_path=srt_path,
             output_path=output_path,
             job_id=job_id,
@@ -127,7 +128,7 @@ def openai_auto_caption():
         
         # Clean up temporary files
         try:
-            for temp_file in [text_path, srt_path, segments_path]:
+            for temp_file in [text_path, srt_path, segments_path, media_file_path]:
                 if temp_file and os.path.exists(temp_file):
                     os.remove(temp_file)
                     logger.info(f"Removed temporary file: {temp_file}")

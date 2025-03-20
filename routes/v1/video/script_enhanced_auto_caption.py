@@ -200,10 +200,11 @@ def process_script_enhanced_auto_caption(video_url, script_text, language, setti
         temp_files.extend([text_path, srt_path, segments_path, enhanced_srt_path, transcription_dir])
         
         # Call OpenAI Whisper API for transcription
-        text_file, srt_file, segments_file = transcribe_with_openai(
+        text_file, srt_file, segments_file, media_file_path = transcribe_with_openai(
             local_video_path, 
             language=language,
-            job_id=job_id
+            job_id=job_id,
+            preserve_media=True  # Keep the media file for subtitle addition
         )
         
         # Copy the files to our desired locations
@@ -211,6 +212,11 @@ def process_script_enhanced_auto_caption(video_url, script_text, language, setti
         shutil.copy(text_file, text_path)
         shutil.copy(srt_file, srt_path)
         shutil.copy(segments_file, segments_path)
+        
+        # Update local_video_path if it changed during transcription
+        if media_file_path != local_video_path:
+            local_video_path = media_file_path
+            logger.info(f"Job {job_id}: Updated video path to {local_video_path}")
         
         # Add these files to temp_files for cleanup
         temp_files.extend([text_file, srt_file, segments_file])
