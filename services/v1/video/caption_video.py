@@ -218,14 +218,51 @@ def split_lines(text, max_words_per_line):
         return any(ord(c) in thai_range for c in s)
     
     if contains_thai(text):
-        # For Thai text, we need a different approach since Thai doesn't use spaces between words
-        # We'll use a simple character count approach instead
-        chars_per_line = max_words_per_line * 5  # Rough estimate: 5 chars per word
+        # For Thai text, we'll use a smarter approach based on character count
+        # Thai words are typically 3-4 characters
+        chars_per_word = 3
+        chars_per_line = max_words_per_line * chars_per_word
+        
         if len(text) <= chars_per_line:
             return [text]
         
-        # Split by character count
-        return [text[i:i+chars_per_line] for i in range(0, len(text), chars_per_line)]
+        # Try to split at natural break points (spaces, punctuation)
+        result = []
+        current_line = ""
+        
+        # Thai punctuation and break characters
+        break_chars = [' ', '\n', ',', '.', '?', '!', ':', ';', ')', ']', '}', '"', "'", '।', '॥', '…', '–', '—', '|']
+        
+        for i, char in enumerate(text):
+            current_line += char
+            
+            # If we've reached the target length, look for a break point
+            if len(current_line) >= chars_per_line:
+                # Look ahead for a break character within the next few characters
+                look_ahead = min(10, len(text) - i - 1)
+                break_found = False
+                
+                for j in range(1, look_ahead + 1):
+                    if i + j < len(text) and text[i + j] in break_chars:
+                        # Include characters up to and including the break character
+                        current_line += text[i+1:i+j+1]
+                        result.append(current_line)
+                        current_line = ""
+                        # Skip the characters we've already processed
+                        i += j
+                        break_found = True
+                        break
+                
+                # If no break point found, just break at the current position
+                if not break_found:
+                    result.append(current_line)
+                    current_line = ""
+        
+        # Add any remaining text
+        if current_line:
+            result.append(current_line)
+        
+        return result
     else:
         # For non-Thai text, split by words
         words = text.split()
@@ -896,8 +933,15 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, job_id=N
             subtitle_path = uppercase_srt
         
         # Process max_words_per_line if needed
-        if max_words_per_line:
-            # Create a temporary SRT file with limited words per line
+        if max_words_per_line and max_words_per_line > 0:
+            logger.info(f"Reformatting SRT with max {max_words_per_line} words per line")
+            temp_dir = os.path.dirname(subtitle_path)
+            if not temp_dir:
+                temp_dir = os.path.dirname(output_path) if output_path else '/tmp'
+            
+            if not os.path.exists(temp_dir):
+                os.makedirs(temp_dir)
+            
             original_srt = subtitle_path
             limited_srt = os.path.join(temp_dir, f"limited_{job_id}.srt")
             
@@ -931,17 +975,38 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, job_id=N
                 for block in srt_data:
                     # Join all text lines
                     text = ' '.join(block["text"])
-                    words = text.split()
                     
-                    # Split into chunks of max_words_per_line
-                    new_lines = []
-                    for i in range(0, len(words), max_words_per_line):
-                        new_lines.append(' '.join(words[i:i+max_words_per_line]))
+                    # Use our improved split_lines function
+                    new_lines = split_lines(text, max_words_per_line)
                     
-                    # Write the reformatted block
-                    f.write(block["index"] + '\n')
-                    f.write(block["time"] + '\n')
-                    f.write('\n'.join(new_lines) + '\n\n')
+                    # Limit to maximum 2 lines per subtitle for better readability
+                    max_lines = 2
+                    if len(new_lines) > max_lines:
+                        # Create multiple subtitle blocks if we have more than max_lines
+                        time_parts = block["time"].split('-->')
+                        start_time = time_parts[0].strip()
+                        end_time = time_parts[1].strip()
+                        
+                        # Calculate time per subtitle block
+                        start_seconds = convert_time_to_seconds(start_time)
+                        end_seconds = convert_time_to_seconds(end_time)
+                        total_duration = end_seconds - start_seconds
+                        duration_per_block = total_duration / ((len(new_lines) + max_lines - 1) // max_lines)
+                        
+                        # Write multiple blocks
+                        for i in range(0, len(new_lines), max_lines):
+                            block_lines = new_lines[i:i+max_lines]
+                            block_start = start_seconds + (i // max_lines) * duration_per_block
+                            block_end = min(end_seconds, block_start + duration_per_block)
+                            
+                            f.write(f"{block['index']}.{i//max_lines+1}\n")
+                            f.write(f"{convert_seconds_to_time(block_start)} --> {convert_seconds_to_time(block_end)}\n")
+                            f.write('\n'.join(block_lines) + '\n\n')
+                    else:
+                        # Write the reformatted block
+                        f.write(block["index"] + '\n')
+                        f.write(block["time"] + '\n')
+                        f.write('\n'.join(new_lines) + '\n\n')
             
             subtitle_path = limited_srt
         
@@ -1290,3 +1355,19 @@ def process_captioning_v1(video_url, captions, settings, replace, job_id, langua
     except Exception as e:
         logger.error(f"Job {job_id}: Error in process_captioning_v1: {str(e)}", exc_info=True)
         return {"error": str(e)}
+
+# Helper functions for time conversion
+def convert_time_to_seconds(time_str):
+    """Convert SRT time format (HH:MM:SS,mmm) to seconds."""
+    parts = time_str.replace(',', '.').split(':')
+    hours = int(parts[0])
+    minutes = int(parts[1])
+    seconds = float(parts[2])
+    return hours * 3600 + minutes * 60 + seconds
+
+def convert_seconds_to_time(seconds):
+    """Convert seconds to SRT time format (HH:MM:SS,mmm)."""
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    seconds = seconds % 60
+    return f"{hours:02d}:{minutes:02d}:{seconds:06.3f}".replace('.', ',')
