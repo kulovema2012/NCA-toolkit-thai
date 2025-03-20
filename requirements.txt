@@ -19,3 +19,4 @@ boto3
 Pillow
 matplotlib
 jsonschema
+pythainlp>=3.1.2
