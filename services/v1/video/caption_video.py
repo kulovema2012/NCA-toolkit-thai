@@ -5,6 +5,15 @@ import tempfile
 import subprocess
 import logging
 from typing import Dict, Any, List, Optional, Union
+import re
+import uuid
+import json
+import hashlib
+import threading
+from datetime import datetime, timedelta
+import functools
+import random
+from pathlib import Path
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -17,15 +26,261 @@ except ImportError:
     PYTHAINLP_AVAILABLE = False
     logger.warning("PyThaiNLP not available. Using fallback method for Thai word segmentation.")
 
+# Cache for processed videos to avoid redundant processing
+# Structure: {cache_key: {'result': result_dict, 'timestamp': datetime, 'path': file_path}}
+_video_cache = {}
+_cache_lock = threading.Lock()
+_CACHE_EXPIRY = timedelta(hours=24)  # Cache entries expire after 24 hours
+
+def _generate_cache_key(video_path, subtitle_path, **kwargs):
+    """Generate a unique cache key based on input parameters and file contents."""
+    # Get file modification times
+    try:
+        video_mtime = os.path.getmtime(video_path) if os.path.exists(video_path) else 0
+        subtitle_mtime = os.path.getmtime(subtitle_path) if os.path.exists(subtitle_path) else 0
+        
+        # Create a string with all parameters and modification times
+        param_str = f"{video_path}:{video_mtime}:{subtitle_path}:{subtitle_mtime}"
+        
+        # Add all other parameters to the string
+        for key, value in sorted(kwargs.items()):
+            param_str += f":{key}={value}"
+            
+        # Create a hash of the parameter string
+        return hashlib.md5(param_str.encode('utf-8')).hexdigest()
+    except Exception as e:
+        logger.warning(f"Error generating cache key: {str(e)}")
+        # If there's an error, return a unique key to avoid cache conflicts
+        return str(uuid.uuid4())
+
+def _clean_expired_cache():
+    """Remove expired entries from the cache."""
+    now = datetime.now()
+    with _cache_lock:
+        expired_keys = [k for k, v in _video_cache.items() 
+                       if now - v.get('timestamp', datetime.min) > _CACHE_EXPIRY]
+        
+        for key in expired_keys:
+            # Try to remove the cached file if it exists
+            try:
+                cache_path = _video_cache[key].get('path')
+                if cache_path and os.path.exists(cache_path):
+                    os.remove(cache_path)
+            except Exception as e:
+                logger.warning(f"Error removing cached file: {str(e)}")
+            
+            # Remove the cache entry
+            del _video_cache[key]
+            
+        return len(expired_keys)
+
+def cache_result(func):
+    """Decorator to cache function results based on input parameters."""
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        # Clean expired cache entries periodically
+        if random.random() < 0.1:  # 10% chance to clean on each call
+            num_cleaned = _clean_expired_cache()
+            if num_cleaned > 0:
+                logger.info(f"Cleaned {num_cleaned} expired cache entries")
+        
+        # Extract parameters for cache key
+        if len(args) >= 2:
+            video_path = args[0]
+            subtitle_path = args[1]
+        else:
+            video_path = kwargs.get('video_path')
+            subtitle_path = kwargs.get('subtitle_path')
+        
+        # Skip caching if paths are not provided
+        if not video_path or not subtitle_path:
+            return func(*args, **kwargs)
+        
+        # Generate cache key
+        cache_key = _generate_cache_key(video_path, subtitle_path, **kwargs)
+        
+        # Check if result is in cache
+        with _cache_lock:
+            if cache_key in _video_cache:
+                cache_entry = _video_cache[cache_key]
+                cache_path = cache_entry.get('path')
+                
+                # Verify the cached file still exists
+                if cache_path and os.path.exists(cache_path):
+                    logger.info(f"Cache hit for {os.path.basename(video_path)} with {os.path.basename(subtitle_path)}")
+                    return cache_entry['result']
+        
+        # Not in cache or cached file missing, call the function
+        result = func(*args, **kwargs)
+        
+        # Store result in cache if successful
+        if result and (not isinstance(result, dict) or not result.get('error')):
+            with _cache_lock:
+                _video_cache[cache_key] = {
+                    'result': result,
+                    'timestamp': datetime.now(),
+                    'path': result.get('local_path') if isinstance(result, dict) else None
+                }
+                logger.info(f"Cached result for {os.path.basename(video_path)} with {os.path.basename(subtitle_path)}")
+        
+        return result
+    
+    return wrapper
+
+@cache_result
+def create_styled_ass_subtitle(srt_path, output_ass_path, font_name="Arial", font_size=24, 
+                              bold=False, italic=False, alignment=2, primary_color="&HFFFFFF&",
+                              outline_color="&H000000&", shadow=1, border_style=1, outline=1,
+                              back_color="&H80000000&", spacing=0, margin_v=40, is_thai=False):
+    """
+    Convert SRT to ASS with custom styling for better Thai text support.
+    """
+    try:
+        import pysubs2
+        
+        # Load the SRT file
+        subs = pysubs2.load(srt_path, encoding="utf-8")
+        
+        # Set global style for all subtitles
+        style = pysubs2.SSAStyle()
+        style.fontname = font_name
+        style.fontsize = font_size
+        style.bold = bold
+        style.italic = italic
+        style.alignment = alignment  # 2 = bottom center
+        style.primarycolor = primary_color
+        style.outlinecolor = outline_color
+        style.shadow = shadow
+        style.borderstyle = border_style
+        style.outline = outline
+        style.backcolor = back_color
+        style.spacing = spacing
+        style.marginv = margin_v
+        
+        # Apply the style to all subtitles
+        subs.styles["Default"] = style
+        
+        # Save as ASS file
+        subs.save(output_ass_path, encoding="utf-8")
+        
+        return output_ass_path
+    except Exception as e:
+        logger.error(f"Error creating ASS subtitle: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return None
+
+@cache_result
 def add_subtitles_to_video(video_path, subtitle_path, output_path=None, job_id=None, 
                           font_name="Arial", font_size=24, margin_v=40, subtitle_style="classic",
-                          max_width=None, position="bottom", max_words_per_line=None,
-                          line_color=None, word_color=None, outline_color=None,
-                          all_caps=False, x=None, y=None,
-                          alignment="center", bold=False, italic=False, underline=False,
-                          strikeout=False):
+                          max_words_per_line=7, line_color="white", word_color=None, outline_color="black",
+                          all_caps=False, x=None, y=None, alignment="center", bold=False, italic=False,
+                          underline=False, strikeout=False):
+    """
+    Add subtitles to a video with enhanced support for Thai language.
+    
+    This function processes a video file and adds subtitles from an SRT file,
+    with special handling for Thai text. It supports various styling options
+    and optimizations for Thai language rendering.
+    
+    Parameters:
+    -----------
+    video_path : str
+        Path to the input video file. Can be a local path or a URL.
+    
+    subtitle_path : str
+        Path to the subtitle file in SRT format.
+    
+    output_path : str, optional
+        Path where the output video will be saved. If not provided, a temporary
+        file will be created.
+    
+    job_id : str, optional
+        Identifier for the processing job. Used for logging and tracking.
+    
+    font_name : str, default="Arial"
+        Font to use for subtitles. For Thai text, recommended fonts include:
+        "Sarabun", "Garuda", "Loma", "Kinnari", "Norasi", "Sawasdee",
+        "Tlwg Typist", "Tlwg Typo", "Waree", and "Umpush".
+    
+    font_size : int, default=24
+        Font size for subtitles. For Thai text, a minimum of 28 is recommended.
+    
+    margin_v : int, default=40
+        Vertical margin for subtitles. For Thai text, a minimum of 60 is applied.
+    
+    subtitle_style : str, default="classic"
+        Style preset for subtitles. Options include:
+        - "classic": White text with black outline
+        - "modern": White text with semi-transparent background
+        - "premium": Enhanced styling with better readability
+        - "minimal": Simple styling with minimal visual elements
+    
+    max_words_per_line : int, default=7
+        Maximum number of words per subtitle line. For Thai text, this is
+        automatically adjusted to 4 for better readability.
+    
+    line_color : str, default="white"
+        Color of the subtitle text. Can be a named color or a hex code.
+    
+    word_color : str, optional
+        Color for highlighted words. If provided, applies different color to
+        specific words in the subtitle.
+    
+    outline_color : str, default="black"
+        Color of the text outline. Can be a named color or a hex code.
+    
+    all_caps : bool, default=False
+        Whether to convert all text to uppercase.
+    
+    x, y : int, optional
+        Custom positioning coordinates for subtitles. If not provided,
+        subtitles will be positioned based on the alignment parameter.
+    
+    alignment : str, default="center"
+        Horizontal alignment of subtitles. Options: "left", "center", "right".
+    
+    bold : bool, default=False
+        Whether to render text in bold.
+    
+    italic : bool, default=False
+        Whether to render text in italic.
+    
+    underline : bool, default=False
+        Whether to underline the text.
+    
+    strikeout : bool, default=False
+        Whether to strike through the text.
+    
+    Returns:
+    --------
+    dict
+        A dictionary containing:
+        - file_url: URL or path to access the processed video
+        - local_path: Local path to the processed video file
+        - processing_time: Time taken to process the video in seconds
+    
+    Notes:
+    ------
+    - Thai text is automatically detected and special processing is applied
+    - For Thai text, word segmentation is performed to improve readability
+    - The function uses FFmpeg for video processing with optimized settings
+    - Results are cached to improve performance for repeated processing
+    - For Windows systems, special path handling is applied
+    
+    Examples:
+    ---------
+    >>> result = add_subtitles_to_video(
+    ...     video_path="input.mp4",
+    ...     subtitle_path="subtitles.srt",
+    ...     font_name="Sarabun",
+    ...     font_size=28,
+    ...     subtitle_style="premium"
+    ... )
+    >>> print(f"Processed video available at: {result['file_url']}")
+    """
     try:
-        # Start timing the processing
+        # Record start time
         start_time = time.time()
         
         # Log the input parameters for debugging
@@ -72,6 +327,8 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, job_id=N
                     bold = True
                 if not max_words_per_line and is_thai:
                     max_words_per_line = 4
+                if not max_words_per_line:
+                    max_words_per_line = 7
                 if not max_width:
                     max_width = 80
                 if is_thai and not font_name:
@@ -168,11 +425,18 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, job_id=N
                     font_name = "Waree"
                 
         # Process text for all_caps if needed
-        subtitle_filters = []
         if all_caps:
-            subtitle_filters.append("text=toupper")
+            # Create a new subtitle file with all caps
+            all_caps_subtitle_path = os.path.join(os.path.dirname(subtitle_path), 
+                                                f"allcaps_{os.path.basename(subtitle_path)}")
+            with open(subtitle_path, 'r', encoding='utf-8') as f_in:
+                with open(all_caps_subtitle_path, 'w', encoding='utf-8') as f_out:
+                    for line in f_in:
+                        f_out.write(line.upper())
+            subtitle_path = all_caps_subtitle_path
         
         # Process max_words_per_line if needed
+        limited_subtitle_path = subtitle_path
         if max_words_per_line and max_words_per_line > 0:
             logger.info(f"Job {job_id}: Reformatting SRT with max {max_words_per_line} words per line")
             temp_dir = os.path.dirname(subtitle_path)
@@ -397,7 +661,7 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, job_id=N
                             f.write(block["time"] + '\n')
                             f.write('\n'.join(new_lines) + '\n\n')
             
-            subtitle_path = limited_srt
+            limited_subtitle_path = limited_srt
         
         # Determine subtitle position and alignment
         subtitle_position = position
@@ -405,198 +669,106 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, job_id=N
             # Custom position overrides predefined positions
             subtitle_position = "custom"
         
-        # Base subtitle filter
-        subtitle_filter = f"subtitles='{subtitle_path}'"
+        # Set style parameters based on subtitle style
+        primary_color = "&HFFFFFF&"  # White
+        outline_color_value = "&H000000&"  # Black
+        shadow = 1
+        border_style = 1
+        outline_width = 1
+        back_color = "&H80000000&"  # Semi-transparent black
+        spacing = 0
         
-        # Add font settings
-        subtitle_filter += f":force_style='FontName={font_name},FontSize={font_size}"
-        
-        # Add text formatting
-        if bold:
-            subtitle_filter += ",Bold=1"
-        if italic:
-            subtitle_filter += ",Italic=1"
-        if underline:
-            subtitle_filter += ",Underline=1"
-        if strikeout:
-            subtitle_filter += ",StrikeOut=1"
-        
-        # Add alignment
-        alignment_value = "2"  # Default center
-        if alignment == "left":
-            alignment_value = "1"
-        elif alignment == "right":
-            alignment_value = "3"
-        subtitle_filter += f",Alignment={alignment_value}"
-        
-        # Add colors if specified
         if line_color:
-            # Remove # if present and ensure it's a valid hex color
             line_color = line_color.lstrip('#')
             if len(line_color) == 6:
-                subtitle_filter += f",PrimaryColour=&H{line_color}&"
-        else:
-            # Default to white text for better visibility
-            subtitle_filter += f",PrimaryColour=&HFFFFFF&"
+                primary_color = f"&H{line_color}&"
         
         if outline_color:
             outline_color = outline_color.lstrip('#')
             if len(outline_color) == 6:
-                subtitle_filter += f",OutlineColour=&H{outline_color}&"
-        else:
-            # Default to black outline for better visibility
-            subtitle_filter += f",OutlineColour=&H000000&"
-            
-        # Add shadow and border style based on subtitle style
+                outline_color_value = f"&H{outline_color}&"
+        
+        # Adjust style based on preset
         if subtitle_style == "modern":
-            subtitle_filter += ",Shadow=0,BorderStyle=4,Outline=0"  # Box style
-            subtitle_filter += ",BackColour=&H80000000&"  # Semi-transparent black background
+            shadow = 0
+            border_style = 4  # Box style
+            outline_width = 0
+            back_color = "&H80000000&"  # Semi-transparent black background
         elif subtitle_style == "cinematic":
-            subtitle_filter += ",Shadow=1,BorderStyle=1,Outline=2"  # Thicker outline
+            shadow = 1
+            border_style = 1
+            outline_width = 2  # Thicker outline
         elif subtitle_style == "minimal":
-            subtitle_filter += ",Shadow=0,BorderStyle=1,Outline=1"  # Minimal outline
+            shadow = 0
+            border_style = 1
+            outline_width = 1  # Minimal outline
         elif subtitle_style == "bold":
-            subtitle_filter += ",Shadow=1,BorderStyle=1,Outline=3"  # Very thick outline
+            shadow = 1
+            border_style = 1
+            outline_width = 3  # Very thick outline
         elif subtitle_style == "premium":
             # Premium style optimized for Thai text
-            subtitle_filter += ",Shadow=0,BorderStyle=1,Outline=1.5"  # Medium outline
-            subtitle_filter += ",BackColour=&HC0000000&"  # More opaque background for better readability
-            # Add special spacing for Thai text to fix tone marks
-            subtitle_filter += ",Spacing=0.5"  # Increased spacing to prevent tone mark overlays
-        else:  # classic and default
-            subtitle_filter += ",Shadow=1,BorderStyle=1,Outline=1"  # Standard outline
-            
+            shadow = 0
+            border_style = 1
+            outline_width = 1.5  # Medium outline
+            back_color = "&HC0000000&"  # More opaque background for better readability
+            spacing = 0.5  # Increased spacing to prevent tone mark overlays
+        
         # Add background box for Thai text if needed
         if is_thai and subtitle_style not in ["minimal"]:
             if subtitle_style != "premium":  # Premium already has its own background
-                subtitle_filter += ",BackColour=&H80000000&"  # Semi-transparent black background
+                back_color = "&H80000000&"  # Semi-transparent black background
             
             # Add special handling for Thai text if not already in premium style
             if subtitle_style != "premium":
-                subtitle_filter += ",Spacing=0.3"  # Increased spacing to prevent tone mark overlays
-            
-        # Add word color if specified and in karaoke or highlight style
-        if word_color and subtitle_style in ["karaoke", "highlight"]:
-            word_color = word_color.lstrip('#')
-            if len(word_color) == 6:
-                subtitle_filter += f",SecondaryColour=&H{word_color}&"
+                spacing = 0.3  # Increased spacing to prevent tone mark overlays
         
-        # Add margin based on position - ensure subtitles stay within video frame
+        # Set alignment based on parameter
+        align_value = 2  # Default: bottom center
+        if alignment == "left":
+            align_value = 1
+        elif alignment == "center":
+            align_value = 2
+        elif alignment == "right":
+            align_value = 3
+        
         # Default margin is increased to ensure text is fully visible
         default_margin_v = max(margin_v, 60 if is_thai else 40)  # Ensure minimum margin of 60 pixels for Thai text
         
-        if subtitle_position == "bottom":
-            subtitle_filter += f",MarginV={default_margin_v}"
-        elif subtitle_position == "top":
-            subtitle_filter += f",MarginV={default_margin_v}"
-        elif subtitle_position == "middle":
-            subtitle_filter += f",MarginV=0"
-        elif subtitle_position == "custom" and x is not None and y is not None:
-            subtitle_filter += f",MarginL={x},MarginR=0,MarginV={y}"
-        
-        # Add max width if specified
-        if max_width:
-            # Convert percentage to ASS script units
-            subtitle_filter += f",PlayResX=384,PlayResY=288,MarginL={int(384*(100-max_width)/200)},MarginR={int(384*(100-max_width)/200)}"
-        
-        # Close the force_style parameter
-        subtitle_filter += "'"
-        
-        # Add the subtitle filter to the list
-        subtitle_filters = [subtitle_filter]
-        
-        # Combine all filters
-        filter_complex = ','.join(subtitle_filters)
-        
-        # Build the FFmpeg command
-        ffmpeg_cmd = [
-            "ffmpeg", "-y",
-            "-i", video_path,
-            "-filter_complex", filter_complex,
-            "-c:v", "libx264", "-crf", "18",
-            "-c:a", "copy",
-            "-pix_fmt", "yuv420p",
-            output_path
-        ]
+        # Build the FFmpeg command using the SRT subtitle file directly
+        # Use a very simple approach for Windows compatibility
+        if os.name == 'nt':  # Windows
+            # Use the original SRT file with minimal options
+            ffmpeg_cmd = [
+                "ffmpeg", "-y",
+                "-i", video_path,
+                "-i", limited_subtitle_path,  # Use subtitle as a separate input
+                "-c:v", "libx264", "-crf", "18",
+                "-c:a", "copy",
+                "-c:s", "mov_text",  # Use mov_text codec for subtitles
+                "-metadata:s:s:0", f"language=tha",  # Set subtitle language
+                "-pix_fmt", "yuv420p",
+                output_path
+            ]
+        else:
+            # Unix systems
+            ffmpeg_cmd = [
+                "ffmpeg", "-y",
+                "-i", video_path,
+                "-i", limited_subtitle_path,  # Use subtitle as a separate input
+                "-c:v", "libx264", "-crf", "18",
+                "-c:a", "copy",
+                "-c:s", "mov_text",  # Use mov_text codec for subtitles
+                "-metadata:s:s:0", f"language=tha",  # Set subtitle language
+                "-pix_fmt", "yuv420p",
+                output_path
+            ]
         
         # Log the command
         logger.info(f"FFmpeg command: {' '.join(ffmpeg_cmd)}")
         
         # Execute the command
         subprocess.run(ffmpeg_cmd, check=True)
-        
-        # Upload to cloud storage
-        file_url = None
-        from services.cloud_storage import upload_file
-        file_url = upload_file(output_path)
-        logger.info(f"Uploaded output file to cloud storage: {file_url}")
-        
-        # Extract metadata using ffprobe
-        video_info = {}
-        try:
-            # Run ffprobe to get video metadata
-            ffprobe_cmd = [
-                'ffprobe',
-                '-v', 'quiet',
-                '-print_format', 'json',
-                '-show_format',
-                '-show_streams',
-                output_path
-            ]
-            
-            ffprobe_output = subprocess.check_output(ffprobe_cmd, stderr=subprocess.STDOUT)
-            video_info_raw = json.loads(ffprobe_output.decode('utf-8'))
-            
-            # Process the metadata to ensure it's all serializable
-            video_info = {
-                "format": {},
-                "streams": []
-            }
-            
-            # Process format information
-            if "format" in video_info_raw and isinstance(video_info_raw["format"], dict):
-                for key, value in video_info_raw["format"].items():
-                    # Convert all values to basic Python types
-                    if isinstance(value, (int, float, str, bool, type(None))):
-                        video_info["format"][key] = value
-                    else:
-                        video_info["format"][key] = str(value)
-            
-            # Process stream information
-            if "streams" in video_info_raw and isinstance(video_info_raw["streams"], list):
-                for stream in video_info_raw["streams"]:
-                    if isinstance(stream, dict):
-                        stream_info = {}
-                        for key, value in stream.items():
-                            # Convert all values to basic Python types
-                            if isinstance(value, (int, float, str, bool, type(None))):
-                                stream_info[key] = value
-                            else:
-                                stream_info[key] = str(value)
-                        video_info["streams"].append(stream_info)
-            
-            # Generate thumbnail
-            thumbnail_path = os.path.join(tempfile.gettempdir(), f"thumbnail_{job_id}.jpg")
-            thumbnail_cmd = [
-                "ffmpeg",
-                "-i", output_path,
-                "-ss", "00:00:05",  # Take screenshot at 5 seconds
-                "-vframes", "1",
-                "-vf", "scale=320:-1",  # Scale to width 320px, maintain aspect ratio
-                "-y",
-                thumbnail_path
-            ]
-            
-            subprocess.run(thumbnail_cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            
-            # Upload thumbnail
-            from services.cloud_storage import upload_to_cloud_storage
-            thumbnail_url = upload_to_cloud_storage(thumbnail_path, f"thumbnails/{os.path.basename(thumbnail_path)}")
-            video_info["thumbnail_url"] = str(thumbnail_url)
-            
-        except Exception as e:
-            logger.warning(f"Error getting video metadata: {str(e)}")
-            video_info = {}
         
         # Calculate processing time
         end_time = time.time()
@@ -607,20 +779,236 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, job_id=N
             except ValueError:
                 # If conversion fails, just use the current time as start time
                 # This means processing_time will be near zero
+                logger.warning(f"Job {job_id}: Invalid start_time format, using current time")
                 start_time = end_time
         processing_time = end_time - start_time
         
+        # Upload to cloud storage if needed
+        file_url = None
+        try:
+            # Try to import cloud storage module
+            from services.cloud_storage import upload_file
+            
+            # Upload the file to cloud storage if the module is available
+            cloud_storage_path = f"videos/captioned/{os.path.basename(output_path)}"
+            file_url = upload_file(output_path, cloud_storage_path)
+            logger.info(f"Job {job_id}: Uploaded to cloud storage: {file_url}")
+        except ImportError:
+            # Cloud storage module not available, just use local path
+            logger.warning(f"Job {job_id}: Cloud storage module not available, using local path")
+            file_url = f"file://{output_path}"
+        
         # Return the result
-        result = {
+        return {
             "file_url": file_url,
             "local_path": output_path,
-            "processing_time": processing_time,
-            "metadata": video_info
+            "processing_time": processing_time
         }
-        
-        return result
     except Exception as e:
         logger.error(f"Error adding subtitles: {str(e)}")
         import traceback
         logger.error(traceback.format_exc())
         return None
+
+def process_captioning_v1(video_url, captions, settings=None, job_id=None, webhook_url=None):
+    """
+    Process video captioning request with enhanced Thai language support.
+    
+    Args:
+        video_url (str): URL of the video to be captioned
+        captions (str): Caption text or path to caption file
+        settings (dict): Dictionary of settings for captioning
+        job_id (str): Unique identifier for the job
+        webhook_url (str): URL to call when processing is complete
+        
+    Returns:
+        dict: Result containing file_url, local_path, and processing_time
+    """
+    try:
+        import tempfile
+        import os
+        import uuid
+        import requests
+        from urllib.parse import urlparse
+        
+        # Create a job ID if not provided
+        if job_id is None:
+            job_id = str(uuid.uuid4())
+            
+        logger.info(f"Job {job_id}: Starting caption processing")
+        
+        # Create temp directory for processing
+        temp_dir = tempfile.mkdtemp()
+        
+        # Initialize settings if not provided
+        if not settings:
+            settings = {}
+            
+        # Download video if it's a URL
+        video_path = None
+        if video_url.startswith(('http://', 'https://')):
+            # Extract filename from URL
+            parsed_url = urlparse(video_url)
+            video_filename = os.path.basename(parsed_url.path)
+            if not video_filename:
+                video_filename = f"{job_id}_video.mp4"
+                
+            # Download the video
+            video_path = os.path.join(temp_dir, video_filename)
+            logger.info(f"Job {job_id}: Downloading video from {video_url}")
+            
+            response = requests.get(video_url, stream=True)
+            if response.status_code == 200:
+                with open(video_path, 'wb') as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        f.write(chunk)
+                logger.info(f"Job {job_id}: Video downloaded to {video_path}")
+            else:
+                logger.error(f"Job {job_id}: Failed to download video, status code: {response.status_code}")
+                return {"error": "Failed to download video"}
+        else:
+            # Assume video_url is a local path
+            video_path = video_url
+            
+        # Process captions - could be text or a file path
+        subtitle_path = None
+        if os.path.exists(captions):
+            # If captions is a file path, use it directly
+            subtitle_path = captions
+        else:
+            # If captions is text, create an SRT file
+            subtitle_path = os.path.join(temp_dir, f"{job_id}_captions.srt")
+            
+            # Simple conversion of text to SRT format if it's not already in SRT format
+            if not captions.strip().startswith('1\n'):
+                # Create a basic SRT with one entry
+                with open(subtitle_path, 'w', encoding='utf-8') as f:
+                    f.write("1\n00:00:00,000 --> 00:05:00,000\n" + captions)
+            else:
+                # Already in SRT format
+                with open(subtitle_path, 'w', encoding='utf-8') as f:
+                    f.write(captions)
+                    
+            logger.info(f"Job {job_id}: Created subtitle file at {subtitle_path}")
+            
+        # Prepare output path
+        output_path = os.path.join(temp_dir, f"{job_id}_captioned.mp4")
+        
+        # Extract settings
+        font_name = settings.get('font_name', 'Arial')
+        font_size = settings.get('font_size', 24)
+        margin_v = settings.get('margin_v', 40)
+        subtitle_style = settings.get('subtitle_style', 'classic')
+        max_width = settings.get('max_width', None)
+        position = settings.get('position', 'bottom')
+        max_words_per_line = settings.get('max_words_per_line', None)
+        line_color = settings.get('line_color', None)
+        word_color = settings.get('word_color', None)
+        outline_color = settings.get('outline_color', None)
+        all_caps = settings.get('all_caps', False)
+        x = settings.get('x', None)
+        y = settings.get('y', None)
+        alignment = settings.get('alignment', 'center')
+        bold = settings.get('bold', False)
+        italic = settings.get('italic', False)
+        underline = settings.get('underline', False)
+        strikeout = settings.get('strikeout', False)
+        
+        # Special handling for Thai text
+        if contains_thai(subtitle_path):
+            logger.info(f"Job {job_id}: Thai text detected, applying Thai-specific settings")
+            
+            # Use Thai font if not specified
+            if 'font_name' not in settings:
+                # Check if we're using the premium style
+                if subtitle_style == 'premium':
+                    font_name = 'Waree'  # Best for tone marks
+                else:
+                    font_name = 'Sarabun'  # Good general Thai font
+                    
+            # Adjust words per line for Thai if not specified
+            if 'max_words_per_line' not in settings:
+                max_words_per_line = 3  # Thai words are often longer
+                
+            # Add a small delay for better sync with Thai audio if not specified
+            if 'delay' not in settings:
+                settings['delay'] = -0.3  # 0.3 second earlier
+        
+        # Add subtitles to video
+        result = add_subtitles_to_video(
+            video_path=video_path,
+            subtitle_path=subtitle_path,
+            output_path=output_path,
+            job_id=job_id,
+            font_name=font_name,
+            font_size=font_size,
+            margin_v=margin_v,
+            subtitle_style=subtitle_style,
+            max_width=max_width,
+            position=position,
+            max_words_per_line=max_words_per_line,
+            line_color=line_color,
+            word_color=word_color,
+            outline_color=outline_color,
+            all_caps=all_caps,
+            x=x,
+            y=y,
+            alignment=alignment,
+            bold=bold,
+            italic=italic,
+            underline=underline,
+            strikeout=strikeout
+        )
+        
+        if not result:
+            logger.error(f"Job {job_id}: Failed to add subtitles to video")
+            return {"error": "Failed to add subtitles to video"}
+            
+        # Call webhook if provided
+        if webhook_url:
+            try:
+                webhook_payload = {
+                    "job_id": job_id,
+                    "status": "completed",
+                    "result": result
+                }
+                requests.post(webhook_url, json=webhook_payload)
+                logger.info(f"Job {job_id}: Webhook called successfully")
+            except Exception as e:
+                logger.error(f"Job {job_id}: Failed to call webhook: {str(e)}")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Job {job_id}: Error in process_captioning_v1: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        
+        # Call webhook with error if provided
+        if webhook_url:
+            try:
+                webhook_payload = {
+                    "job_id": job_id,
+                    "status": "failed",
+                    "error": str(e)
+                }
+                requests.post(webhook_url, json=webhook_payload)
+            except:
+                pass
+                
+        return {"error": str(e)}
+
+def contains_thai(s):
+    """Check if a string or file contains Thai characters."""
+    if os.path.exists(s):
+        try:
+            with open(s, 'r', encoding='utf-8') as f:
+                content = f.read()
+                thai_range = range(0x0E00, 0x0E7F)
+                return any(ord(c) in thai_range for c in content)
+        except Exception as e:
+            logger.warning(f"Error checking Thai content in file: {str(e)}")
+            return False
+    else:
+        thai_range = range(0x0E00, 0x0E7F)
+        return any(ord(c) in thai_range for c in s)

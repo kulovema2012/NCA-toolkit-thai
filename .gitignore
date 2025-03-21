@@ -42,30 +42,28 @@ logs/
 *.swp
 *.swo
 
-# System files
-.DS_Store
-Thumbs.db
-local_testing/
-original_source/
-
-# Test files & folders
-test/
-tests/
-*_test.*
-*_tests.*
-test_*.py
-test_*.txt
-
 # Generated media files
 *.mp4
 *.srt
 *.ass
 *.wav
 *.mp3
-
-# Temporary files
-tmp/
-temp/
+*.ogg
+*.webm
 
 # Exclude sensitive files
 key.json
+
+# Test files and directories
+local_testing/
+test_*.py
+*_test.py
+
+# Cache directories
+.pytest_cache/
+.cache/
+
+# Generated test media
+test_output/
+test_media/
+sample_outputs/
