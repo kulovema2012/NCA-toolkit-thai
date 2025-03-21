@@ -67,3 +67,4 @@ test_*.py
 test_output/
 test_media/
 sample_outputs/
+original_source/
