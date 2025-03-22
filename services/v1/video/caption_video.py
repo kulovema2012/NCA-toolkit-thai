@@ -84,8 +84,8 @@ def cache_result(func):
             if num_cleaned > 0:
                 logger.info(f"Cleaned {num_cleaned} expired cache entries")
         
-        # Extract parameters for cache key
-        if len(args) >= 2:
+        # Extract video_path and subtitle_path from args or kwargs
+        if args and len(args) >= 2:
             video_path = args[0]
             subtitle_path = args[1]
         else:
@@ -96,8 +96,13 @@ def cache_result(func):
         if not video_path or not subtitle_path:
             return func(*args, **kwargs)
         
+        # Create a copy of kwargs without video_path and subtitle_path to avoid duplicate parameters
+        cache_kwargs = kwargs.copy()
+        cache_kwargs.pop('video_path', None)
+        cache_kwargs.pop('subtitle_path', None)
+        
         # Generate cache key
-        cache_key = _generate_cache_key(video_path, subtitle_path, **kwargs)
+        cache_key = _generate_cache_key(video_path, subtitle_path, **cache_kwargs)
         
         # Check if result is in cache
         with _cache_lock:
