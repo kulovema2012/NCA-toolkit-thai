@@ -180,7 +180,7 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, job_id=N
                           font_name="Arial", font_size=24, margin_v=40, subtitle_style="classic",
                           max_words_per_line=7, line_color="white", word_color=None, outline_color="black",
                           all_caps=False, x=None, y=None, alignment="center", bold=False, italic=False,
-                          underline=False, strikeout=False):
+                          underline=False, strikeout=False, position="bottom", max_width=None):
     """
     Add subtitles to a video with enhanced support for Thai language.
     
@@ -197,81 +197,81 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, job_id=N
         Path to the subtitle file in SRT format.
     
     output_path : str, optional
-        Path where the output video will be saved. If not provided, a temporary
-        file will be created.
+        Path where the output video will be saved. If not provided, a temporary file will be created.
     
     job_id : str, optional
-        Identifier for the processing job. Used for logging and tracking.
+        Identifier for the processing job, used for logging.
     
     font_name : str, default="Arial"
         Font to use for subtitles. For Thai text, recommended fonts include:
-        "Sarabun", "Garuda", "Loma", "Kinnari", "Norasi", "Sawasdee",
-        "Tlwg Typist", "Tlwg Typo", "Waree", and "Umpush".
+        "Sarabun", "Garuda", "Loma", "Kinnari", "Norasi", etc.
     
     font_size : int, default=24
-        Font size for subtitles. For Thai text, a minimum of 28 is recommended.
+        Font size in pixels. For Thai text, a larger size (28-32) is recommended.
     
     margin_v : int, default=40
-        Vertical margin for subtitles. For Thai text, a minimum of 60 is applied.
+        Vertical margin in pixels from the bottom or top of the frame.
     
     subtitle_style : str, default="classic"
-        Style preset for subtitles. Options include:
-        - "classic": White text with black outline
-        - "modern": White text with semi-transparent background
-        - "premium": Enhanced styling with better readability
-        - "minimal": Simple styling with minimal visual elements
+        Preset style for subtitles. Options: "classic", "modern", "premium", "minimal".
     
     max_words_per_line : int, default=7
-        Maximum number of words per subtitle line. For Thai text, this is
-        automatically adjusted to 4 for better readability.
+        Maximum number of words per subtitle line. For Thai text, 4-5 is recommended.
     
     line_color : str, default="white"
-        Color of the subtitle text. Can be a named color or a hex code.
+        Color of the subtitle text. Can be a color name or hex code.
     
     word_color : str, optional
-        Color for highlighted words. If provided, applies different color to
-        specific words in the subtitle.
+        Color for specific words. If provided, overrides line_color for those words.
     
     outline_color : str, default="black"
-        Color of the text outline. Can be a named color or a hex code.
+        Color of the text outline/shadow. Can be a color name or hex code.
     
     all_caps : bool, default=False
         Whether to convert all text to uppercase.
     
-    x, y : int, optional
-        Custom positioning coordinates for subtitles. If not provided,
-        subtitles will be positioned based on the alignment parameter.
+    x : int, optional
+        Horizontal position for subtitles. If not provided, centered horizontally.
+    
+    y : int, optional
+        Vertical position for subtitles. If not provided, determined by position parameter.
     
     alignment : str, default="center"
-        Horizontal alignment of subtitles. Options: "left", "center", "right".
+        Text alignment. Options: "left", "center", "right".
     
     bold : bool, default=False
-        Whether to render text in bold.
+        Whether to make the text bold.
     
     italic : bool, default=False
-        Whether to render text in italic.
+        Whether to make the text italic.
     
     underline : bool, default=False
         Whether to underline the text.
     
     strikeout : bool, default=False
         Whether to strike through the text.
+        
+    position : str, default="bottom"
+        Vertical positioning of subtitles. Options: "top", "middle", "bottom".
+        
+    max_width : int, optional
+        Maximum width of subtitle lines in pixels. If not provided, auto-calculated.
     
     Returns:
     --------
     dict
-        A dictionary containing:
-        - file_url: URL or path to access the processed video
-        - local_path: Local path to the processed video file
-        - processing_time: Time taken to process the video in seconds
+        Dictionary containing:
+        - file_url: URL to access the processed video
+        - local_path: Local path to the processed video
+        - processing_time: Time taken to process in seconds
     
     Notes:
     ------
-    - Thai text is automatically detected and special processing is applied
-    - For Thai text, word segmentation is performed to improve readability
-    - The function uses FFmpeg for video processing with optimized settings
-    - Results are cached to improve performance for repeated processing
-    - For Windows systems, special path handling is applied
+    - For Thai text, the function automatically detects Thai characters and applies
+      appropriate settings for optimal rendering.
+    - Thai word segmentation is performed using PyThaiNLP if available, with fallback
+      to rule-based segmentation.
+    - The function caches results to avoid redundant processing of identical inputs.
     
     Examples:
     ---------
@@ -282,7 +282,7 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, job_id=N
     ...     font_size=28,
     ...     subtitle_style="premium"
     ... )
-    >>> print(f"Processed video available at: {result['file_url']}")
+    >>> print(result["file_url"])
     """
     try:
         # Record start time
