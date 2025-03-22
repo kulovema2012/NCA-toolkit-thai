@@ -792,11 +792,11 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, job_id=N
         file_url = None
         try:
             # Try to import cloud storage module
-            from services.cloud_storage import upload_file
+            from services.cloud_storage import upload_to_cloud_storage
             
             # Upload the file to cloud storage if the module is available
             cloud_storage_path = f"videos/captioned/{os.path.basename(output_path)}"
-            file_url = upload_file(output_path, cloud_storage_path)
+            file_url = upload_to_cloud_storage(output_path, cloud_storage_path)
             logger.info(f"Job {job_id}: Uploaded to cloud storage: {file_url}")
         except ImportError:
             # Cloud storage module not available, just use local path
