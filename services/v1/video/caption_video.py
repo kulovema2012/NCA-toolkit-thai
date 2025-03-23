@@ -668,11 +668,34 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, job_id=N
             
             limited_subtitle_path = limited_srt
         
-        # Determine subtitle position and alignment
-        subtitle_position = position
+        # Set default margin based on language
+        default_margin_v = max(margin_v, 60 if is_thai else 40)  # Ensure minimum margin of 60 pixels for Thai text
+        
+        # Set better default values for Thai subtitles
+        if is_thai:
+            # Smaller font size for Thai by default
+            if font_size == 24:  # If it's still the default value
+                font_size = 20
+            
+            # Increase bottom margin for Thai
+            if default_margin_v == 60:  # If it's the default Thai margin
+                default_margin_v = 80
+        
+        # Determine subtitle position
+        position_style = ""
+        if position == "bottom":
+            # Default position at the bottom
+            position_style = f"MarginV={default_margin_v}"
+        elif position == "top":
+            # Position at the top
+            position_style = f"MarginV=60:Alignment=8"  # Alignment 8 is top-center
+        elif position == "middle":
+            # Position in the middle
+            position_style = f"Alignment=5"  # Alignment 5 is middle-center
+        
+        # If x and y are provided, use them for precise positioning
         if x is not None and y is not None:
-            # Custom position overrides predefined positions
-            subtitle_position = "custom"
+            position_style = f"Alignment=7,MarginL={x},MarginV={y}"  # Alignment 7 allows custom positioning
         
         # Set style parameters based on subtitle style
         primary_color = "&HFFFFFF&"  # White
@@ -727,32 +750,6 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, job_id=N
             # Add special handling for Thai text if not already in premium style
             if subtitle_style != "premium":
                 spacing = 0.3  # Increased spacing to prevent tone mark overlays
-        
-        # Set better default values for Thai subtitles
-        if is_thai:
-            # Smaller font size for Thai by default
-            if font_size == 24:  # If it's still the default value
-                font_size = 20
-            
-            # Increase bottom margin for Thai
-            if default_margin_v == 60:  # If it's the default Thai margin
-                default_margin_v = 80
-        
-        # Determine subtitle position
-        position_style = ""
-        if position == "bottom":
-            # Default position at the bottom
-            position_style = f"MarginV={default_margin_v}"
-        elif position == "top":
-            # Position at the top
-            position_style = f"MarginV=60:Alignment=8"  # Alignment 8 is top-center
-        elif position == "middle":
-            # Position in the middle
-            position_style = f"Alignment=5"  # Alignment 5 is middle-center
-        
-        # If x and y are provided, use them for precise positioning
-        if x is not None and y is not None:
-            position_style = f"Alignment=7,MarginL={x},MarginV={y}"  # Alignment 7 allows custom positioning
         
         # Build the FFmpeg command using the SRT subtitle file directly
         subtitle_style = f"FontName={font_name},FontSize={font_size},PrimaryColour={primary_color},OutlineColour={outline_color_value},BorderStyle={border_style},Outline={outline_width},Shadow={shadow},{position_style}"
