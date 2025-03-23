@@ -728,26 +728,50 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, job_id=N
             if subtitle_style != "premium":
                 spacing = 0.3  # Increased spacing to prevent tone mark overlays
         
-        # Set alignment based on parameter
-        align_value = 2  # Default: bottom center
-        if alignment == "left":
-            align_value = 1
-        elif alignment == "center":
-            align_value = 2
-        elif alignment == "right":
-            align_value = 3
+        # Set better default values for Thai subtitles
+        if is_thai:
+            # Smaller font size for Thai by default
+            if font_size == 24:  # If it's still the default value
+                font_size = 20
+            
+            # Increase bottom margin for Thai
+            if default_margin_v == 60:  # If it's the default Thai margin
+                default_margin_v = 80
         
-        # Default margin is increased to ensure text is fully visible
-        default_margin_v = max(margin_v, 60 if is_thai else 40)  # Ensure minimum margin of 60 pixels for Thai text
+        # Determine subtitle position
+        position_style = ""
+        if position == "bottom":
+            # Default position at the bottom
+            position_style = f"MarginV={default_margin_v}"
+        elif position == "top":
+            # Position at the top
+            position_style = f"MarginV=60:Alignment=8"  # Alignment 8 is top-center
+        elif position == "middle":
+            # Position in the middle
+            position_style = f"Alignment=5"  # Alignment 5 is middle-center
+        
+        # If x and y are provided, use them for precise positioning
+        if x is not None and y is not None:
+            position_style = f"Alignment=7,MarginL={x},MarginV={y}"  # Alignment 7 allows custom positioning
         
         # Build the FFmpeg command using the SRT subtitle file directly
+        subtitle_style = f"FontName={font_name},FontSize={font_size},PrimaryColour={primary_color},OutlineColour={outline_color_value},BorderStyle={border_style},Outline={outline_width},Shadow={shadow},{position_style}"
+        
+        # Add alignment if specified
+        if alignment:
+            if alignment == "left":
+                subtitle_style += ",Alignment=1"  # Bottom-left
+            elif alignment == "right":
+                subtitle_style += ",Alignment=3"  # Bottom-right
+            elif alignment == "center":
+                subtitle_style += ",Alignment=2"  # Bottom-center (default)
+        
         # Use a very simple approach for Windows compatibility
         if os.name == 'nt':  # Windows
-            # Use the original SRT file with minimal options
             ffmpeg_cmd = [
                 "ffmpeg", "-y",
                 "-i", video_path,
-                "-vf", f"subtitles={limited_subtitle_path}:force_style='FontName={font_name},FontSize={font_size},PrimaryColour={primary_color},OutlineColour={outline_color_value},BorderStyle={border_style},Outline={outline_width},Shadow={shadow},MarginV={default_margin_v}'",
+                "-vf", f"subtitles={limited_subtitle_path}:force_style='{subtitle_style}'",
                 "-c:v", "libx264", "-crf", "18",
                 "-c:a", "copy",
                 "-pix_fmt", "yuv420p",
@@ -758,7 +782,7 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, job_id=N
             ffmpeg_cmd = [
                 "ffmpeg", "-y",
                 "-i", video_path,
-                "-vf", f"subtitles={limited_subtitle_path}:force_style='FontName={font_name},FontSize={font_size},PrimaryColour={primary_color},OutlineColour={outline_color_value},BorderStyle={border_style},Outline={outline_width},Shadow={shadow},MarginV={default_margin_v}'",
+                "-vf", f"subtitles={limited_subtitle_path}:force_style='{subtitle_style}'",
                 "-c:v", "libx264", "-crf", "18",
                 "-c:a", "copy",
                 "-pix_fmt", "yuv420p",
