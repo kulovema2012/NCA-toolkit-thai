@@ -73,8 +73,25 @@ def script_enhanced_auto_caption():
         output_path = data.get("output_path", "")
         webhook_url = data.get("webhook_url", "")
         
-        # Extract styling parameters
+        # Extract styling parameters - handle nested structure
         styling_params = {}
+        settings_obj = data.get("settings", {})
+        
+        # Handle font settings
+        font_settings = settings_obj.get("font", {})
+        if font_settings:
+            if "name" in font_settings:
+                styling_params["font_name"] = font_settings["name"]
+            if "size" in font_settings:
+                styling_params["font_size"] = font_settings["size"]
+        
+        # Handle style settings
+        style_settings = settings_obj.get("style", {})
+        if style_settings:
+            for key, value in style_settings.items():
+                styling_params[key] = value
+        
+        # Handle direct settings (for backward compatibility)
         optional_params = [
             "font_name", "font_size", "position", "subtitle_style", "margin_v", 
             "max_width", "line_color", "word_color", "outline_color", "all_caps",
@@ -85,6 +102,9 @@ def script_enhanced_auto_caption():
         for param in optional_params:
             if param in data:
                 styling_params[param] = data[param]
+        
+        # Log the extracted styling parameters
+        logger.info(f"Extracted styling parameters: {styling_params}")
         
         # Generate a job ID if not provided
         job_id = data.get("job_id", f"script_enhanced_auto_caption_{datetime.now().strftime('%Y%m%d%H%M%S')}")

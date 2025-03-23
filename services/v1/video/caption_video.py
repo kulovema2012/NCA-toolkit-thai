@@ -747,24 +747,20 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, job_id=N
             ffmpeg_cmd = [
                 "ffmpeg", "-y",
                 "-i", video_path,
-                "-i", limited_subtitle_path,  # Use subtitle as a separate input
+                "-vf", f"subtitles={limited_subtitle_path}:force_style='FontName={font_name},FontSize={font_size},PrimaryColour={primary_color},OutlineColour={outline_color_value},BorderStyle={border_style},Outline={outline_width},Shadow={shadow},MarginV={default_margin_v}'",
                 "-c:v", "libx264", "-crf", "18",
                 "-c:a", "copy",
-                "-c:s", "mov_text",  # Use mov_text codec for subtitles
-                "-metadata:s:s:0", f"language=tha",  # Set subtitle language
                 "-pix_fmt", "yuv420p",
                 output_path
             ]
         else:
-            # Unix systems
+            # Unix systems - use more advanced subtitle burning
             ffmpeg_cmd = [
                 "ffmpeg", "-y",
                 "-i", video_path,
-                "-i", limited_subtitle_path,  # Use subtitle as a separate input
+                "-vf", f"subtitles={limited_subtitle_path}:force_style='FontName={font_name},FontSize={font_size},PrimaryColour={primary_color},OutlineColour={outline_color_value},BorderStyle={border_style},Outline={outline_width},Shadow={shadow},MarginV={default_margin_v}'",
                 "-c:v", "libx264", "-crf", "18",
                 "-c:a", "copy",
-                "-c:s", "mov_text",  # Use mov_text codec for subtitles
-                "-metadata:s:s:0", f"language=tha",  # Set subtitle language
                 "-pix_fmt", "yuv420p",
                 output_path
             ]
