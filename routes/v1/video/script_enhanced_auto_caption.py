@@ -4,7 +4,7 @@ import logging
 import json
 from datetime import datetime
 from services.v1.media.openai_transcribe import transcribe_with_openai
-from services.v1.media.script_enhanced_subtitles import align_script_with_subtitles
+from services.v1.media.script_enhanced_subtitles import enhance_subtitles_from_segments
 from services.v1.video.caption_video import add_subtitles_to_video
 from services.webhook import send_webhook
 from services.file_management import download_file
@@ -255,9 +255,34 @@ def process_script_enhanced_auto_caption(video_url, script_text, language, setti
         
         # Align script text with segments
         logger.info(f"Job {job_id}: Aligning script with transcription segments")
-        from services.v1.media.media_transcribe import align_script_with_segments
+        from services.v1.media.script_enhanced_subtitles import enhance_subtitles_from_segments
         
-        align_script_with_segments(script_text, segments, enhanced_srt_path, language)
+        # Use the enhanced_subtitles_from_segments function that uploads to cloud storage
+        alignment_result = enhance_subtitles_from_segments(
+            script_text=script_text, 
+            segments=segments, 
+            output_srt_path=enhanced_srt_path, 
+            upload_to_cloud=True
+        )
+        
+        # Check if the result is a dictionary with cloud_url
+        srt_cloud_url = None
+        if isinstance(alignment_result, dict) and "cloud_url" in alignment_result:
+            enhanced_srt_path = alignment_result["local_path"]
+            srt_cloud_url = alignment_result["cloud_url"]
+            logger.info(f"Job {job_id}: Enhanced SRT uploaded to cloud: {srt_cloud_url}")
+        else:
+            enhanced_srt_path = alignment_result
+            # If the cloud upload failed, try to upload it manually
+            try:
+                from services.cloud_storage import upload_to_cloud_storage
+                import uuid
+                filename = os.path.basename(enhanced_srt_path)
+                destination_path = f"subtitles/{uuid.uuid4()}_{filename}"
+                srt_cloud_url = upload_to_cloud_storage(enhanced_srt_path, destination_path)
+                logger.info(f"Job {job_id}: Enhanced SRT uploaded to cloud: {srt_cloud_url}")
+            except Exception as e:
+                logger.warning(f"Job {job_id}: Failed to upload SRT to cloud storage: {str(e)}")
         
         if not os.path.exists(enhanced_srt_path):
             raise ValueError(f"Enhanced SRT file not created at {enhanced_srt_path}")
@@ -349,6 +374,10 @@ def process_script_enhanced_auto_caption(video_url, script_text, language, setti
             "run_time": round(run_time, 3),
             "total_time": round(total_time, 3)
         }
+        
+        # Add SRT URL to the response if available
+        if srt_cloud_url:
+            response["srt_url"] = srt_cloud_url
         
         # Add optional metadata if available
         if "metadata" in caption_result:

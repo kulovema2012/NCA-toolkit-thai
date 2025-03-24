@@ -115,35 +115,60 @@ def process_transcribe_media(media_url, task, include_text, include_srt, include
     logger.info(f"Downloaded media to local file: {input_filename}")
 
     try:
-        # Determine the appropriate model size based on language
-        # Use medium model for Thai language to improve accuracy
+        # Choose model size based on language and available resources
         if language and language.lower() in ['th', 'thai']:
-            model_size = "medium"
-            language = "th"  # Explicitly set language to Thai
-            logger.info(f"Using large model for Thai language transcription")
-            
-            # Apply Thai-specific audio preprocessing
-            input_filename = preprocess_thai_audio(input_filename)
+            # Use small model for Thai to reduce memory usage
+            logger.info(f"Using small model for Thai language transcription")
+            model = whisper.load_model("small")
         else:
-            # Load a larger model for better translation quality
-            model_size = "large" if task == "translate" else "base"
-            
-        model = whisper.load_model(model_size)
-        logger.info(f"Loaded Whisper {model_size} model")
+            # Use base model for other languages
+            logger.info(f"Using base model for transcription")
+            model = whisper.load_model("base")
 
         # Configure transcription/translation options
         options = {
             "task": task,
-            "word_timestamps": word_timestamps,
-            "verbose": False
+            "verbose": False,  # Reduce console output
+            "fp16": False,     # Use FP32 to avoid warnings and ensure compatibility
         }
-
-        # Add language specification if provided
-        if language:
-            options["language"] = language
-            logger.info(f"Setting language to {language} for {task}")
-
-        result = model.transcribe(input_filename, **options)
+        
+        # Set a timeout for the transcription process
+        import signal
+        
+        class TimeoutException(Exception):
+            pass
+        
+        def timeout_handler(signum, frame):
+            raise TimeoutException("Transcription process timed out")
+        
+        # Set a 240-second (4 minute) timeout for the transcription process
+        signal.signal(signal.SIGALRM, timeout_handler)
+        signal.alarm(240)
+        
+        try:
+            # If language is specified, set it in the options
+            if language:
+                options["language"] = language
+                logger.info(f"Setting language to {language} for {task}")
+            
+            # Run transcription with optimized memory settings
+            import gc
+            gc.collect()  # Force garbage collection before running memory-intensive process
+            
+            # Run transcription
+            result = model.transcribe(input_filename, **options)
+            
+            # Reset the alarm
+            signal.alarm(0)
+            
+        except TimeoutException:
+            logger.error("Transcription process timed out after 240 seconds")
+            raise Exception("Transcription process timed out. Please try with a shorter audio file.")
+        except Exception as e:
+            # Reset the alarm
+            signal.alarm(0)
+            logger.error(f"Error during transcription: {str(e)}")
+            raise
         
         # Process Thai text if needed
         is_thai = language and language.lower() in ['th', 'thai']
