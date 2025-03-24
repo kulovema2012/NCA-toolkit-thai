@@ -54,14 +54,14 @@ logs/
 # Exclude sensitive files
 key.json
 
+# Cache directories
+.pytest_cache/
+.cache/
+
 # Test files and directories
 local_testing/
 test_*.py
 *_test.py
-
-# Cache directories
-.pytest_cache/
-.cache/
 
 # Generated test media
 test_output/
