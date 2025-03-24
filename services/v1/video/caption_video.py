@@ -866,6 +866,8 @@ def process_srt_file(subtitle_path, max_words_per_line=7, is_thai=False):
         "stylist": "เรื่องราวของ",
         "Flatast": "ภาพที่น่าสนใจ",
         "pc": "พีซี",
+        "Pax Romana": "Pax Romana",
+        "Hidden Timelines": "Hidden Timelines"
     }
     
     try:
@@ -884,17 +886,21 @@ def process_srt_file(subtitle_path, max_words_per_line=7, is_thai=False):
         processed_subtitles = []
         
         # Maximum characters per line for Thai
-        max_thai_chars_per_line = 25  # Reduced from 30 to show fewer characters at once
+        max_thai_chars_per_line = 20  # Further reduced from 25 to prevent horizontal overflow
         
         # Maximum words per line for Thai
         thai_max_words_per_line = 2 if is_thai else max_words_per_line  # Reduced for Thai
         
-        # Add a small gap between subtitles to prevent blinking (200ms)
-        gap_duration = timedelta(milliseconds=200)  # Increased from 150ms
+        # Add a small gap between subtitles to prevent blinking (250ms)
+        gap_duration = timedelta(milliseconds=250)  # Increased from 200ms for better separation
         
         # Maximum duration for any subtitle (to ensure voice-over sync)
-        max_subtitle_duration = timedelta(seconds=2.5)
+        max_subtitle_duration = timedelta(seconds=2.0)  # Reduced from 2.5s for tighter sync
         
+        # Minimum duration for any subtitle to ensure readability
+        min_subtitle_duration = timedelta(milliseconds=800)
+        
+        # Process subtitles for better synchronization
         for i, subtitle in enumerate(subtitles):
             # Get the text content
             text = subtitle.content
@@ -982,6 +988,10 @@ def process_srt_file(subtitle_path, max_words_per_line=7, is_thai=False):
                             if end_time - start_time > max_subtitle_duration:
                                 end_time = start_time + max_subtitle_duration
                             
+                            # Ensure minimum duration
+                            if end_time - start_time < min_subtitle_duration:
+                                end_time = start_time + min_subtitle_duration
+                            
                             # Add gap if not the last subtitle
                             if j < num_subtitles - 1:
                                 end_time = end_time - gap_duration
@@ -1027,6 +1037,10 @@ def process_srt_file(subtitle_path, max_words_per_line=7, is_thai=False):
                         end_time = subtitle.end
                         if subtitle.end - subtitle.start > max_subtitle_duration:
                             end_time = subtitle.start + max_subtitle_duration
+                        
+                        # Ensure minimum duration
+                        if end_time - subtitle.start < min_subtitle_duration:
+                            end_time = subtitle.start + min_subtitle_duration
                         
                         # Create a single subtitle
                         processed_subtitles.append(
@@ -1085,6 +1099,10 @@ def process_srt_file(subtitle_path, max_words_per_line=7, is_thai=False):
             if subtitle.end - subtitle.start > max_subtitle_duration:
                 end_time = subtitle.start + max_subtitle_duration
             
+            # Ensure minimum duration
+            if end_time - subtitle.start < min_subtitle_duration:
+                end_time = subtitle.start + min_subtitle_duration
+            
             # Add a gap between this subtitle and the next one
             if i < len(subtitles) - 1:
                 next_start = subtitles[i+1].start
@@ -1115,6 +1133,18 @@ def process_srt_file(subtitle_path, max_words_per_line=7, is_thai=False):
                     end=subtitles[i+1].end,
                     content=subtitles[i+1].content
                 )
+        
+        # Sort subtitles by start time to ensure proper ordering
+        processed_subtitles.sort(key=lambda x: x.start)
+        
+        # Renumber subtitles
+        for i, sub in enumerate(processed_subtitles):
+            processed_subtitles[i] = srt.Subtitle(
+                index=i+1,
+                start=sub.start,
+                end=sub.end,
+                content=sub.content
+            )
         
         # Write the processed SRT file
         processed_path = subtitle_path.replace('.srt', '_processed.srt')

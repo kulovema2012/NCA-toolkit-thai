@@ -166,15 +166,6 @@ def process_transcribe_media(media_url, task, include_text, include_srt, include
     # Determine if the language is Thai
     is_thai = language and language.lower() == 'th'
     
-    # For Thai language, optimize processing to prevent timeouts
-    if is_thai:
-        logger.info("Thai language detected - using optimized processing settings")
-        # Use smaller chunk sizes for Thai to prevent timeouts
-        chunk_size = 10 * 60  # 10 minute chunks instead of default 30
-        logger.info(f"Using smaller chunk size for Thai: {chunk_size} minutes")
-    else:
-        chunk_size = None  # Use default
-    
     try:
         # Load the Whisper model
         model = whisper.load_model("medium")
@@ -192,12 +183,87 @@ def process_transcribe_media(media_url, task, include_text, include_srt, include
         if word_timestamps:
             options["word_timestamps"] = True
         
-        # Add chunk size for Thai to prevent timeouts
-        if chunk_size:
-            options["chunk_size"] = chunk_size
-        
-        # Run the transcription/translation
-        result = model.transcribe(input_filename, **options)
+        # For Thai language, optimize processing to prevent timeouts
+        if is_thai:
+            logger.info("Thai language detected - using optimized processing settings")
+            # Use smaller audio segments for Thai to prevent timeouts
+            # Instead of using chunk_size which isn't supported, we'll manually split the audio
+            from pydub import AudioSegment
+            import tempfile
+            
+            # Load the audio file
+            audio = AudioSegment.from_file(input_filename)
+            
+            # Split into 10-minute chunks
+            chunk_length_ms = 10 * 60 * 1000  # 10 minutes in milliseconds
+            chunks = []
+            
+            # Create temporary directory for chunks
+            temp_dir = tempfile.mkdtemp()
+            chunk_files = []
+            
+            # Split the audio into chunks
+            for i, chunk_start in enumerate(range(0, len(audio), chunk_length_ms)):
+                chunk_end = min(chunk_start + chunk_length_ms, len(audio))
+                chunk = audio[chunk_start:chunk_end]
+                
+                # Save the chunk to a temporary file
+                chunk_file = os.path.join(temp_dir, f"chunk_{i}.wav")
+                chunk.export(chunk_file, format="wav")
+                chunk_files.append(chunk_file)
+                
+                logger.info(f"Created audio chunk {i+1}: {chunk_start/1000}s to {chunk_end/1000}s")
+            
+            # Process each chunk
+            all_segments = []
+            full_text = ""
+            
+            for i, chunk_file in enumerate(chunk_files):
+                logger.info(f"Processing chunk {i+1}/{len(chunk_files)}")
+                chunk_result = model.transcribe(chunk_file, **options)
+                
+                # Adjust timestamps for this chunk
+                time_offset = i * chunk_length_ms / 1000  # in seconds
+                
+                for segment in chunk_result['segments']:
+                    segment['start'] += time_offset
+                    segment['end'] += time_offset
+                    
+                    # Adjust word timestamps if present
+                    if word_timestamps and 'words' in segment:
+                        for word in segment['words']:
+                            if 'start' in word:
+                                word['start'] += time_offset
+                            if 'end' in word:
+                                word['end'] += time_offset
+                
+                # Add segments to the full list
+                all_segments.extend(chunk_result['segments'])
+                
+                # Add text to the full text
+                full_text += chunk_result['text'] + " "
+            
+            # Create a complete result
+            result = {
+                'text': full_text.strip(),
+                'segments': all_segments
+            }
+            
+            # Clean up temporary files
+            for chunk_file in chunk_files:
+                try:
+                    os.remove(chunk_file)
+                except:
+                    pass
+            try:
+                os.rmdir(temp_dir)
+            except:
+                pass
+                
+            logger.info(f"Completed processing {len(chunk_files)} chunks for Thai audio")
+        else:
+            # For non-Thai languages, use the standard approach
+            result = model.transcribe(input_filename, **options)
         
         # Post-process Thai text if needed
         if is_thai:
