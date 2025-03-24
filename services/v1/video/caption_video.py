@@ -135,718 +135,205 @@ def cache_result(func):
     return wrapper
 
 @cache_result
-def create_styled_ass_subtitle(srt_path, output_ass_path, font_name="Arial", font_size=24, 
-                              bold=False, italic=False, alignment=2, primary_color="&HFFFFFF&",
-                              outline_color="&H000000&", shadow=1, border_style=1, outline=1,
-                              back_color="&H80000000&", spacing=0, margin_v=40, is_thai=False):
+def add_subtitles_to_video(video_path, subtitle_path, output_path=None, font_name="Arial", font_size=24, 
+                          position="bottom", margin_v=30, subtitle_style="classic", max_width=None,
+                          line_color=None, word_color=None, outline_color=None, all_caps=False,
+                          max_words_per_line=7, x=None, y=None, alignment="center", bold=False,
+                          italic=False, underline=False, strikeout=False, job_id=None):
     """
-    Convert SRT to ASS with custom styling for better Thai text support.
-    """
-    try:
-        import pysubs2
+    Add subtitles to a video using FFmpeg.
+    
+    Args:
+        video_path: Path to the video file
+        subtitle_path: Path to the subtitle file (SRT format)
+        output_path: Path to save the output video (optional)
+        font_name: Font to use for subtitles
+        font_size: Font size
+        position: Position of subtitles (top, middle, bottom)
+        margin_v: Vertical margin from the edge
+        subtitle_style: Style of subtitles (classic, modern, karaoke, highlight, underline, word_by_word)
+        max_width: Maximum width of subtitle text (in pixels)
+        line_color: Color for subtitle text
+        word_color: Color for highlighted words
+        outline_color: Color for text outline
+        all_caps: Whether to capitalize all text
+        max_words_per_line: Maximum words per subtitle line
+        x: X position for subtitles (overrides position)
+        y: Y position for subtitles (overrides position)
+        alignment: Text alignment (left, center, right)
+        bold: Whether to use bold text
+        italic: Whether to use italic text
+        underline: Whether to use underlined text
+        strikeout: Whether to use strikeout text
+        job_id: Job ID for tracking
         
-        # Load the SRT file
-        subs = pysubs2.load(srt_path, encoding="utf-8")
-        
-        # Set global style for all subtitles
-        style = pysubs2.SSAStyle()
-        style.fontname = font_name
-        style.fontsize = font_size
-        style.bold = bold
-        style.italic = italic
-        style.alignment = alignment  # 2 = bottom center
-        style.primarycolor = primary_color
-        style.outlinecolor = outline_color
-        style.shadow = shadow
-        style.borderstyle = border_style
-        style.outline = outline
-        style.backcolor = back_color
-        style.spacing = spacing
-        style.marginv = margin_v
-        
-        # Apply the style to all subtitles
-        subs.styles["Default"] = style
-        
-        # Save as ASS file
-        subs.save(output_ass_path, encoding="utf-8")
-        
-        return output_ass_path
-    except Exception as e:
-        logger.error(f"Error creating ASS subtitle: {str(e)}")
-        import traceback
-        logger.error(traceback.format_exc())
-        return None
-
-@cache_result
-def add_subtitles_to_video(video_path, subtitle_path, output_path=None, job_id=None, 
-                          font_name="Arial", font_size=24, margin_v=40, subtitle_style="classic",
-                          max_words_per_line=7, line_color="white", word_color=None, outline_color="black",
-                          all_caps=False, x=None, y=None, alignment="center", bold=False, italic=False,
-                          underline=False, strikeout=False, position="bottom", max_width=None):
-    """
-    Add subtitles to a video with enhanced support for Thai language.
-    
-    This function processes a video file and adds subtitles from an SRT file,
-    with special handling for Thai text. It supports various styling options
-    and optimizations for Thai language rendering.
-    
-    Parameters:
-    -----------
-    video_path : str
-        Path to the input video file. Can be a local path or a URL.
-    
-    subtitle_path : str
-        Path to the subtitle file in SRT format.
-    
-    output_path : str, optional
-        Path where the output video will be saved. If not provided, a temporary file will be created.
-    
-    job_id : str, optional
-        Identifier for the processing job, used for logging.
-    
-    font_name : str, default="Arial"
-        Font to use for subtitles. For Thai text, recommended fonts include:
-        "Sarabun", "Garuda", "Loma", "Kinnari", "Norasi", etc.
-    
-    font_size : int, default=24
-        Font size in pixels. For Thai text, a larger size (28-32) is recommended.
-    
-    margin_v : int, default=40
-        Vertical margin in pixels from the bottom or top of the frame.
-    
-    subtitle_style : str, default="classic"
-        Preset style for subtitles. Options: "classic", "modern", "premium", "minimal".
-    
-    max_words_per_line : int, default=7
-        Maximum number of words per subtitle line. For Thai text, 4-5 is recommended.
-    
-    line_color : str, default="white"
-        Color of the subtitle text. Can be a color name or hex code.
-    
-    word_color : str, optional
-        Color for specific words. If provided, overrides line_color for those words.
-    
-    outline_color : str, default="black"
-        Color of the text outline/shadow. Can be a color name or hex code.
-    
-    all_caps : bool, default=False
-        Whether to convert all text to uppercase.
-    
-    x : int, optional
-        Horizontal position for subtitles. If not provided, centered horizontally.
-    
-    y : int, optional
-        Vertical position for subtitles. If not provided, determined by position parameter.
-    
-    alignment : str, default="center"
-        Text alignment. Options: "left", "center", "right".
-    
-    bold : bool, default=False
-        Whether to make the text bold.
-    
-    italic : bool, default=False
-        Whether to make the text italic.
-    
-    underline : bool, default=False
-        Whether to underline the text.
-    
-    strikeout : bool, default=False
-        Whether to strike through the text.
-        
-    position : str, default="bottom"
-        Vertical positioning of subtitles. Options: "top", "middle", "bottom".
-        
-    max_width : int, optional
-        Maximum width of subtitle lines in pixels. If not provided, auto-calculated.
-    
     Returns:
-    --------
-    dict
-        Dictionary containing:
-        - file_url: URL to access the processed video
-        - local_path: Local path to the processed video
-        - processing_time: Time taken to process in seconds
-    
-    Notes:
-    ------
-    - For Thai text, the function automatically detects Thai characters and applies
-      appropriate settings for optimal rendering.
-    - Thai word segmentation is performed using PyThaiNLP if available, with fallback
-      to rule-based segmentation.
-    - The function caches results to avoid redundant processing of identical inputs.
-    
-    Examples:
-    ---------
-    >>> result = add_subtitles_to_video(
-    ...     video_path="input.mp4",
-    ...     subtitle_path="subtitles.srt",
-    ...     font_name="Sarabun",
-    ...     font_size=28,
-    ...     subtitle_style="premium"
-    ... )
-    >>> print(result["file_url"])
+        Path to the output video
     """
+    logger.info(f"Adding subtitles to video: {video_path}")
+    
+    # Determine if subtitles are in Thai
+    is_thai = False
     try:
-        # Record start time
-        start_time = time.time()
-        
-        # Log the input parameters for debugging
-        logger.info(f"Job {job_id}: Adding subtitles to video with parameters:")
-        logger.info(f"Job {job_id}: video_path: {video_path}")
-        logger.info(f"Job {job_id}: subtitle_path: {subtitle_path}")
-        logger.info(f"Job {job_id}: font_name: {font_name}")
-        logger.info(f"Job {job_id}: font_size: {font_size}")
-        logger.info(f"Job {job_id}: subtitle_style: {subtitle_style}")
-        
-        # Check if output path is provided
-        if not output_path:
-            output_path = os.path.join(os.path.dirname(video_path), f"{job_id}_captioned.mp4")
-        
-        # Check if the subtitle file exists
-        if not os.path.exists(subtitle_path):
-            logger.error(f"Job {job_id}: Subtitle file not found: {subtitle_path}")
-            return None
-        
-        # Check if the video file exists
-        if not os.path.exists(video_path):
-            logger.error(f"Job {job_id}: Video file not found: {video_path}")
-            return None
-            
-        # Check if text contains Thai characters
-        def contains_thai(s):
-            with open(subtitle_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-                thai_range = range(0x0E00, 0x0E7F)
-                return any(ord(c) in thai_range for c in content)
-        
-        is_thai = contains_thai(subtitle_path)
-        logger.info(f"Job {job_id}: Contains Thai text: {is_thai}")
-        
-        # Apply predefined styles
-        if subtitle_style:
-            if subtitle_style == "classic":
-                # Classic style: white text with black outline
-                if not line_color:
-                    line_color = "FFFFFF"  # White
-                if not outline_color:
-                    outline_color = "000000"  # Black
-                if not bold:
-                    bold = True
-                if not max_words_per_line and is_thai:
-                    max_words_per_line = 3  # Reduced from 4 to 3 for Thai
-                if not max_words_per_line:
-                    max_words_per_line = 7
-                if not max_width:
-                    max_width = 80
-                if is_thai and not font_name:
-                    font_name = "Sarabun"  # Best overall Thai font
-            
-            elif subtitle_style == "modern":
-                # Modern style: white text with semi-transparent background
-                if not line_color:
-                    line_color = "FFFFFF"  # White
-                if not outline_color:
-                    outline_color = "000000"  # Black
-                if not font_size:
-                    font_size = 28
-                if not max_words_per_line and is_thai:
-                    max_words_per_line = 2  # Reduced from 3 to 2 for Thai
-                if not max_width:
-                    max_width = 70
-                if is_thai and not font_name:
-                    font_name = "Sarabun"  # Best overall Thai font
-            
-            elif subtitle_style == "cinematic":
-                # Cinematic style: larger text, bottom position, wider
-                if not line_color:
-                    line_color = "FFFFFF"  # White
-                if not outline_color:
-                    outline_color = "000000"  # Black
-                if not font_size:
-                    font_size = 32
-                if not position:
-                    position = "bottom"
-                if not margin_v:
-                    margin_v = 60
-                if not max_words_per_line and is_thai:
-                    max_words_per_line = 2  # Reduced from 3 to 2 for Thai
-                if not max_width:
-                    max_width = 90
-                if not bold:
-                    bold = True
-                if is_thai and not font_name:
-                    font_name = "Sarabun"  # Best overall Thai font
-                    
-            elif subtitle_style == "minimal":
-                # Minimal style: smaller text, no background
-                if not line_color:
-                    line_color = "FFFFFF"  # White
-                if not outline_color:
-                    outline_color = "000000"  # Black
-                if not font_size:
-                    font_size = 22
-                if not max_words_per_line and is_thai:
-                    max_words_per_line = 5
-                if not max_width:
-                    max_width = 60
-                if is_thai and not font_name:
-                    font_name = "Garuda"  # Better for smaller text in Thai
-                    
-            elif subtitle_style == "bold":
-                # Bold style: large text with strong outline
-                if not line_color:
-                    line_color = "FFFFFF"  # White
-                if not outline_color:
-                    outline_color = "000000"  # Black
-                if not font_size:
-                    font_size = 30
-                if not bold:
-                    bold = True
-                if not max_words_per_line and is_thai:
-                    max_words_per_line = 3
-                if not max_width:
-                    max_width = 75
-                if is_thai and not font_name:
-                    font_name = "Sarabun"  # Best overall Thai font
-                    
-            elif subtitle_style == "premium":
-                # Premium style: optimized specifically for Thai text
-                if not line_color:
-                    line_color = "FFFFFF"  # White
-                if not outline_color:
-                    outline_color = "000000"  # Black
-                if not font_size:
-                    font_size = 28
-                if not position:
-                    position = "bottom"
-                if not margin_v:
-                    margin_v = 70
-                if not max_words_per_line and is_thai:
-                    max_words_per_line = 3
-                if not max_width:
-                    max_width = 75
-                if not bold:
-                    bold = True
-                # Use Waree font which has better tone mark alignment for Thai
-                if is_thai:
-                    font_name = "Waree"
-                
-        # Process text for all_caps if needed
-        if all_caps:
-            # Create a new subtitle file with all caps
-            all_caps_subtitle_path = os.path.join(os.path.dirname(subtitle_path), 
-                                                f"allcaps_{os.path.basename(subtitle_path)}")
-            with open(subtitle_path, 'r', encoding='utf-8') as f_in:
-                with open(all_caps_subtitle_path, 'w', encoding='utf-8') as f_out:
-                    for line in f_in:
-                        f_out.write(line.upper())
-            subtitle_path = all_caps_subtitle_path
-        
-        # Process max_words_per_line if needed
-        limited_subtitle_path = subtitle_path
-        if max_words_per_line and max_words_per_line > 0:
-            logger.info(f"Job {job_id}: Reformatting SRT with max {max_words_per_line} words per line")
-            temp_dir = os.path.dirname(subtitle_path)
-            if not temp_dir:
-                temp_dir = os.path.dirname(output_path) if output_path else '/tmp'
-            
-            if not os.path.exists(temp_dir):
-                os.makedirs(temp_dir)
-            
-            original_srt = subtitle_path
-            limited_srt = os.path.join(temp_dir, f"limited_{job_id}.srt")
-            
-            with open(original_srt, 'r', encoding='utf-8') as f:
-                content = f.read()
-            
-            # Parse and reformat SRT
-            srt_data = []
-            current_block = {"index": "", "time": "", "text": []}
-            for line in content.split('\n'):
-                line = line.strip()
-                if not line:
-                    if current_block["text"]:
-                        srt_data.append(current_block)
-                        current_block = {"index": "", "time": "", "text": []}
-                    continue
-                
-                if not current_block["index"]:
-                    current_block["index"] = line
-                elif not current_block["time"] and '-->' in line:
-                    current_block["time"] = line
-                else:
-                    current_block["text"].append(line)
-            
-            # Add the last block if it exists
-            if current_block["text"]:
-                srt_data.append(current_block)
-            
-            # Helper functions for time conversion
-            def convert_time_to_seconds(time_str):
-                """Convert SRT time format (HH:MM:SS,mmm) to seconds."""
-                parts = time_str.replace(',', '.').split(':')
-                hours = int(parts[0])
-                minutes = int(parts[1])
-                seconds = float(parts[2])
-                return hours * 3600 + minutes * 60 + seconds
-            
-            def convert_seconds_to_time(seconds):
-                """Convert seconds to SRT time format (HH:MM:SS,mmm)."""
-                hours = int(seconds // 3600)
-                minutes = int((seconds % 3600) // 60)
-                seconds = seconds % 60
-                return f"{hours:02d}:{minutes:02d}:{seconds:06.3f}".replace('.', ',')
-            
-            # Improved split_lines function for Thai text
-            def split_lines(text, max_words_per_line):
-                """Split text into lines with a maximum number of words per line."""
-                if not max_words_per_line or max_words_per_line <= 0:
-                    return [text]
-                    
-                # Check if text contains Thai characters
-                def contains_thai(s):
-                    thai_range = range(0x0E00, 0x0E7F)
-                    return any(ord(c) in thai_range for c in s)
-                
-                if contains_thai(text):
-                    # For Thai text, use PyThaiNLP if available
-                    if PYTHAINLP_AVAILABLE:
-                        try:
-                            # Use PyThaiNLP with newmm engine (fastest and most accurate)
-                            # Set timeout to prevent hanging on very long text
-                            words = word_tokenize(text, engine="newmm", keep_whitespace=False)
-                            
-                            # If the text is short enough, return it as is
-                            if len(words) <= max_words_per_line:
-                                return [text]
-                            
-                            # Split into chunks of max_words_per_line
-                            result = []
-                            for i in range(0, len(words), max_words_per_line):
-                                chunk = words[i:i+max_words_per_line]
-                                # Join without spaces for Thai words
-                                line = ""
-                                for word in chunk:
-                                    # Add space only for non-Thai characters
-                                    if any(ord(c) < 0x0E00 or ord(c) > 0x0E7F for c in word):
-                                        line += " " + word
-                                    else:
-                                        line += word
-                                result.append(line.strip())
-                            return result
-                        except Exception as e:
-                            logger.warning(f"PyThaiNLP tokenization failed: {str(e)}. Using fallback method.")
-                            # Fall back to the rule-based method if PyThaiNLP fails
-                    
-                    # Fallback: Rule-based Thai word segmentation
-                    # Thai punctuation and break characters
-                    break_chars = [' ', '\n', ',', '.', '?', '!', ':', ';', ')', ']', '}', '"', "'", '।', '॥', '…', '–', '—', '|']
-                    
-                    # Common Thai word-ending characters that can be used as potential break points
-                    thai_word_endings = ['ะ', 'า', 'ิ', 'ี', 'ึ', 'ื', 'ุ', 'ู', 'เ', 'แ', 'โ', 'ใ', 'ไ', '่', '้', '๊', '๋', '็', '์', 'ๆ']
-                    
-                    # If the text is short enough, return it as is
-                    if len(text) <= max_words_per_line * 5:  # Estimate 5 chars per Thai word
-                        return [text]
-                        
-                    # Try to split at natural break points
-                    result = []
-                    current_line = ""
-                    char_count = 0
-                    last_potential_break = 0
-                    
-                    for i, char in enumerate(text):
-                        current_line += char
-                        char_count += 1
-                        
-                        # Mark potential break points at word boundaries
-                        if char in break_chars or char in thai_word_endings:
-                            last_potential_break = i
-                        
-                        # If we've reached the target length, break at the last potential break point
-                        if char_count >= max_words_per_line * 4:  # Slightly less than our estimate to be safe
-                            if last_potential_break > 0 and last_potential_break > i - 10:
-                                # Break at the last potential break point
-                                result.append(current_line[:last_potential_break - i + len(current_line)])
-                                current_line = current_line[last_potential_break - i + len(current_line):]
-                                char_count = len(current_line)
-                                last_potential_break = 0
-                            else:
-                                # If no good break point, just break here
-                                result.append(current_line)
-                                current_line = ""
-                                char_count = 0
-                                last_potential_break = 0
-                    
-                    # Add any remaining text
-                    if current_line:
-                        result.append(current_line)
-                    
-                    return result
-                else:
-                    # For non-Thai text, split by words
-                    words = text.split()
-                    if len(words) <= max_words_per_line:
-                        return [text]
-                    
-                    # Split into chunks of max_words_per_line
-                    return [' '.join(words[i:i+max_words_per_line]) for i in range(0, len(words), max_words_per_line)]
-            
-            # Reformat with max words per line and fix synchronization
-            with open(limited_srt, 'w', encoding='utf-8') as f:
-                for block in srt_data:
-                    # Join all text lines
-                    text = ' '.join(block["text"])
-                    
-                    # Use our improved split_lines function
-                    new_lines = split_lines(text, max_words_per_line)
-                    
-                    # Limit to maximum 2 lines per subtitle for better readability
-                    max_lines = 2
-                    if len(new_lines) > max_lines:
-                        # Create multiple subtitle blocks if we have more than max_lines
-                        time_parts = block["time"].split('-->')
-                        start_time = time_parts[0].strip()
-                        end_time = time_parts[1].strip()
-                        
-                        # Calculate time per subtitle block
-                        start_seconds = convert_time_to_seconds(start_time)
-                        end_seconds = convert_time_to_seconds(end_time)
-                        total_duration = end_seconds - start_seconds
-                        
-                        # Improve synchronization by adding a small offset
-                        if is_thai:
-                            # Add a small offset (0.3 seconds) to improve sync with Thai audio
-                            start_seconds = max(0, start_seconds - 0.3)
-                            # Extend duration slightly for better readability
-                            end_seconds = end_seconds + 0.2
-                            total_duration = end_seconds - start_seconds
-                        
-                        duration_per_block = total_duration / ((len(new_lines) + max_lines - 1) // max_lines)
-                        
-                        # Write multiple blocks
-                        for i in range(0, len(new_lines), max_lines):
-                            block_lines = new_lines[i:i+max_lines]
-                            block_start = start_seconds + (i // max_lines) * duration_per_block
-                            block_end = min(end_seconds, block_start + duration_per_block)
-                            
-                            # Ensure minimum display time (1.5 seconds) for Thai text
-                            if is_thai and (block_end - block_start) < 1.5:
-                                block_end = min(end_seconds, block_start + 1.5)
-                            
-                            f.write(f"{block['index']}.{i//max_lines+1}\n")
-                            f.write(f"{convert_seconds_to_time(block_start)} --> {convert_seconds_to_time(block_end)}\n")
-                            f.write('\n'.join(block_lines) + '\n\n')
-                    else:
-                        # Write the reformatted block
-                        # Improve synchronization for Thai text
-                        if is_thai:
-                            time_parts = block["time"].split('-->')
-                            start_time = time_parts[0].strip()
-                            end_time = time_parts[1].strip()
-                            
-                            # Calculate time in seconds
-                            start_seconds = convert_time_to_seconds(start_time)
-                            end_seconds = convert_time_to_seconds(end_time)
-                            
-                            # Add a small offset (0.3 seconds) to improve sync with Thai audio
-                            start_seconds = max(0, start_seconds - 0.3)
-                            # Extend duration slightly for better readability
-                            end_seconds = end_seconds + 0.2
-                            
-                            # Ensure minimum display time (1.5 seconds) for Thai text
-                            if (end_seconds - start_seconds) < 1.5:
-                                end_seconds = start_seconds + 1.5
-                            
-                            # Write with adjusted timing
-                            f.write(f"{block['index']}\n")
-                            f.write(f"{convert_seconds_to_time(start_seconds)} --> {convert_seconds_to_time(end_seconds)}\n")
-                            f.write('\n'.join(new_lines) + '\n\n')
-                        else:
-                            # Non-Thai text - use original timing
-                            f.write(block["index"] + '\n')
-                            f.write(block["time"] + '\n')
-                            f.write('\n'.join(new_lines) + '\n\n')
-            
-            limited_subtitle_path = limited_srt
-        
-        # Set default margin based on language, but respect user-specified values
-        if margin_v is None or margin_v == 30:  # 30 is the default value
-            default_margin_v = 60 if is_thai else 40  # Default minimums
-        else:
-            # User explicitly set a margin value, respect it
-            default_margin_v = margin_v
-        
-        # Set better default values for Thai subtitles (only if using defaults)
-        if is_thai and (margin_v is None or margin_v == 30):
-            # Smaller font size for Thai by default
-            if font_size == 24:  # If it's still the default value
-                font_size = 20
-            
-            # Increase bottom margin for Thai (only if using default)
-            if default_margin_v == 60:  # If it's the default Thai margin
-                default_margin_v = 80
-        
-        # Determine subtitle position
-        position_style = ""
-        if position == "bottom":
-            # Default position at the bottom
-            position_style = f"MarginV={default_margin_v}"
-        elif position == "top":
-            # Position at the top
-            position_style = f"MarginV=60:Alignment=8"  # Alignment 8 is top-center
-        elif position == "middle":
-            # Position in the middle
-            position_style = f"Alignment=5"  # Alignment 5 is middle-center
-        
-        # If x and y are provided, use them for precise positioning
-        if x is not None and y is not None:
-            position_style = f"Alignment=7,MarginL={x},MarginV={y}"  # Alignment 7 allows custom positioning
-        
-        # Set style parameters based on subtitle style
-        primary_color = "&HFFFFFF&"  # White
-        outline_color_value = "&H000000&"  # Black
-        shadow = 1
-        border_style = 1
-        outline_width = 1
-        back_color = "&H80000000&"  # Semi-transparent black
-        spacing = 0
-        
-        if line_color:
-            line_color = line_color.lstrip('#')
-            if len(line_color) == 6:
-                primary_color = f"&H{line_color}&"
-        
-        if outline_color:
-            outline_color = outline_color.lstrip('#')
-            if len(outline_color) == 6:
-                outline_color_value = f"&H{outline_color}&"
-        
-        # Adjust style based on preset
-        if subtitle_style == "modern":
-            shadow = 0
-            border_style = 4  # Box style
-            outline_width = 0
-            back_color = "&H80000000&"  # Semi-transparent black background
-        elif subtitle_style == "cinematic":
-            shadow = 1
-            border_style = 1
-            outline_width = 2  # Thicker outline
-        elif subtitle_style == "minimal":
-            shadow = 0
-            border_style = 1
-            outline_width = 1  # Minimal outline
-        elif subtitle_style == "bold":
-            shadow = 1
-            border_style = 1
-            outline_width = 3  # Very thick outline
-        elif subtitle_style == "premium":
-            # Premium style optimized for Thai text
-            shadow = 0
-            border_style = 1
-            outline_width = 1.5  # Medium outline
-            back_color = "&HC0000000&"  # More opaque background for better readability
-            spacing = 0.5  # Increased spacing to prevent tone mark overlays
-        
-        # Add background box for Thai text if needed
-        if is_thai and subtitle_style not in ["minimal"]:
-            if subtitle_style != "premium":  # Premium already has its own background
-                back_color = "&H80000000&"  # Semi-transparent black background
-            
-            # Add special handling for Thai text if not already in premium style
-            if subtitle_style != "premium":
-                spacing = 0.3  # Increased spacing to prevent tone mark overlays
-        
-        # Process SRT file to improve subtitle formatting and prevent overlapping
-        processed_subtitle_path = process_srt_file(subtitle_path, max_words_per_line, is_thai)
-        
-        # Build the FFmpeg command using the SRT subtitle file directly
-        subtitle_style = f"FontName={font_name},FontSize={font_size},PrimaryColour={primary_color},OutlineColour={outline_color_value},BorderStyle={border_style},Outline={outline_width},Shadow={shadow},{position_style}"
-        
-        # Add alignment if specified
-        if alignment:
-            if alignment == "left":
-                subtitle_style += ",Alignment=1"  # Bottom-left
-            elif alignment == "right":
-                subtitle_style += ",Alignment=3"  # Bottom-right
-            elif alignment == "center":
-                subtitle_style += ",Alignment=2"  # Bottom-center (default)
-        
-        # Escape single quotes in the style string for FFmpeg
-        subtitle_style = subtitle_style.replace("'", "\\'")
-        
-        # Determine output file path
-        if output_path:
-            output_file = output_path
-        else:
-            output_dir = os.path.join(STORAGE_PATH, 'output_videos')
-            os.makedirs(output_dir, exist_ok=True)
-            output_file = os.path.join(output_dir, f"{os.path.splitext(os.path.basename(video_path))[0]}_captioned.mp4")
-        
-        # Build FFmpeg command based on whether we're using burn-in or soft subtitles
-        ffmpeg_cmd = [
-            "ffmpeg", "-y",
-            "-i", video_path,
-            "-vf", f"subtitles={processed_subtitle_path}:force_style='{subtitle_style}'",
-            "-c:v", "libx264", "-crf", "18",
-            "-c:a", "copy",
-            "-pix_fmt", "yuv420p",
-            output_file
-        ]
-        
-        # Log the command
-        logger.info(f"FFmpeg command: {' '.join(ffmpeg_cmd)}")
-        
-        # Execute the command
-        subprocess.run(ffmpeg_cmd, check=True)
-        
-        # Calculate processing time
-        end_time = time.time()
-        # Ensure start_time is a float before subtraction
-        if isinstance(start_time, str):
-            try:
-                start_time = float(start_time)
-            except ValueError:
-                # If conversion fails, just use the current time as start time
-                # This means processing_time will be near zero
-                logger.warning(f"Job {job_id}: Invalid start_time format, using current time")
-                start_time = end_time
-        processing_time = end_time - start_time
-        
-        # Upload to cloud storage if needed
-        file_url = None
-        try:
-            # Try to import cloud storage module
-            from services.cloud_storage import upload_to_cloud_storage
-            
-            # Upload the file to cloud storage if the module is available
-            cloud_storage_path = f"videos/captioned/{os.path.basename(output_path)}"
-            file_url = upload_to_cloud_storage(output_path, cloud_storage_path)
-            logger.info(f"Job {job_id}: Uploaded to cloud storage: {file_url}")
-        except ImportError:
-            # Cloud storage module not available, just use local path
-            logger.warning(f"Job {job_id}: Cloud storage module not available, using local path")
-            file_url = f"file://{output_path}"
-        
-        # Return the result
-        return {
-            "file_url": file_url,
-            "local_path": output_path,
-            "processing_time": processing_time
-        }
+        with open(subtitle_path, 'r', encoding='utf-8-sig') as f:
+            content = f.read()
+            # Check for Thai characters
+            thai_chars = 'กขฃคฅฆงจฉชซฌญฎฏฐฑฒณดตถทธนบปผฝพฟภมยรลวศษสหฬอฮะัาำิีึืุูเแโใไๅ่้๊๋'
+            is_thai = any(c in thai_chars for c in content)
+            logger.info(f"Detected {'Thai' if is_thai else 'non-Thai'} subtitles")
     except Exception as e:
-        logger.error(f"Error adding subtitles: {str(e)}")
-        import traceback
-        logger.error(traceback.format_exc())
+        logger.warning(f"Error detecting subtitle language: {str(e)}")
+    
+    # Process the SRT file to improve formatting and prevent overlapping
+    processed_subtitle_path = process_srt_file(subtitle_path, max_words_per_line, is_thai)
+    
+    # Set default output path if not provided
+    if not output_path:
+        output_path = os.path.splitext(video_path)[0] + "_subtitled" + os.path.splitext(video_path)[1]
+    
+    # Get video dimensions to calculate proper subtitle positioning and scaling
+    video_info = get_video_info(video_path)
+    if not video_info:
+        logger.error("Failed to get video information")
+        return None
+    
+    video_width = int(video_info.get('width', 1280))
+    video_height = int(video_info.get('height', 720))
+    
+    # Calculate aspect ratio
+    aspect_ratio = video_width / video_height
+    is_vertical = aspect_ratio < 1.0  # Vertical video like 9:16
+    
+    # Adjust font size based on video dimensions and orientation
+    if is_vertical:
+        # For vertical videos (like 9:16), scale font size down
+        adjusted_font_size = int(font_size * (video_width / 1080))
+        # Limit maximum width for vertical videos to prevent overflow
+        if not max_width:
+            max_width = int(video_width * 0.8)  # 80% of video width
+    else:
+        # For horizontal videos, use standard scaling
+        adjusted_font_size = int(font_size * (video_width / 1920))
+        if not max_width:
+            max_width = int(video_width * 0.9)  # 90% of video width
+    
+    logger.info(f"Video dimensions: {video_width}x{video_height}, Adjusted font size: {adjusted_font_size}, Max width: {max_width}")
+    
+    # Calculate subtitle positioning
+    if x is not None and y is not None:
+        # Use explicit x,y coordinates if provided
+        x_pos = x
+        y_pos = y
+    else:
+        # Calculate based on position parameter
+        if position == "top":
+            y_pos = margin_v
+        elif position == "middle":
+            y_pos = video_height // 2
+        else:  # bottom (default)
+            y_pos = video_height - margin_v
+        
+        # Center horizontally by default
+        x_pos = video_width // 2
+    
+    # Adjust alignment for FFmpeg
+    if alignment == "left":
+        align_param = 1
+    elif alignment == "right":
+        align_param = 2
+    else:  # center (default)
+        align_param = 0
+    
+    # Set up font formatting
+    font_formatting = ""
+    if bold:
+        font_formatting += ":fontconfig_pattern=weight=bold"
+    if italic:
+        font_formatting += ":fontconfig_pattern=slant=italic"
+    
+    # Set up colors
+    if not line_color:
+        line_color = "white"
+    if not outline_color:
+        outline_color = "black"
+    if not word_color and subtitle_style in ["highlight", "word_by_word", "karaoke"]:
+        word_color = "yellow"
+    
+    # Set up subtitle filter based on style
+    if subtitle_style == "classic":
+        # Classic style with simple text
+        subtitle_filter = f"subtitles='{processed_subtitle_path}':force_style='FontName={font_name},FontSize={adjusted_font_size},PrimaryColour={line_color},OutlineColour={outline_color},BorderStyle=1,Outline=1,Shadow=0,MarginV={margin_v},Alignment={align_param}{font_formatting}'"
+    
+    elif subtitle_style == "modern":
+        # Modern style with background box
+        subtitle_filter = f"subtitles='{processed_subtitle_path}':force_style='FontName={font_name},FontSize={adjusted_font_size},PrimaryColour={line_color},OutlineColour={outline_color},BackColour=&H80000000,BorderStyle=3,Outline=1,Shadow=0,MarginV={margin_v},Alignment={align_param}{font_formatting}'"
+    
+    elif subtitle_style in ["highlight", "karaoke", "word_by_word"]:
+        # For styles that need word-level processing, we need to use ASS subtitles
+        # Convert SRT to ASS first
+        ass_subtitle_path = processed_subtitle_path.replace('.srt', '.ass')
+        convert_srt_to_ass(processed_subtitle_path, ass_subtitle_path, font_name, adjusted_font_size, 
+                         line_color, outline_color, word_color, align_param, margin_v, 
+                         subtitle_style, max_width, all_caps, font_formatting)
+        subtitle_filter = f"ass='{ass_subtitle_path}'"
+    
+    elif subtitle_style == "underline":
+        # Underlined text
+        subtitle_filter = f"subtitles='{processed_subtitle_path}':force_style='FontName={font_name},FontSize={adjusted_font_size},PrimaryColour={line_color},OutlineColour={outline_color},BorderStyle=1,Outline=1,Shadow=0,MarginV={margin_v},Alignment={align_param},Underline=1{font_formatting}'"
+    
+    else:
+        # Default to classic if style not recognized
+        subtitle_filter = f"subtitles='{processed_subtitle_path}':force_style='FontName={font_name},FontSize={adjusted_font_size},PrimaryColour={line_color},OutlineColour={outline_color},BorderStyle=1,Outline=1,Shadow=0,MarginV={margin_v},Alignment={align_param}{font_formatting}'"
+    
+    # Add voice-over delay of 0.2 seconds for Thai videos to ensure synchronization
+    if is_thai:
+        voice_over_delay = 0.2
+        logger.info(f"Adding voice-over delay of {voice_over_delay}s for Thai video")
+        # Use the adelay filter to delay audio
+        audio_filter = f"adelay={int(voice_over_delay*1000)}:all=1"
+        ffmpeg_cmd = [
+            "ffmpeg", "-y", "-i", video_path, 
+            "-filter_complex", f"[0:v]{subtitle_filter}[v];[0:a]{audio_filter}[a]", 
+            "-map", "[v]", "-map", "[a]", 
+            "-c:v", "libx264", "-crf", "18", "-preset", "veryfast",
+            "-c:a", "aac", "-b:a", "192k",
+            output_path
+        ]
+    else:
+        # No audio delay for non-Thai videos
+        ffmpeg_cmd = [
+            "ffmpeg", "-y", "-i", video_path, 
+            "-vf", subtitle_filter, 
+            "-c:v", "libx264", "-crf", "18", "-preset", "veryfast",
+            "-c:a", "copy",
+            output_path
+        ]
+    
+    logger.info(f"Running FFmpeg command: {' '.join(ffmpeg_cmd)}")
+    
+    try:
+        # Run FFmpeg
+        import subprocess
+        result = subprocess.run(ffmpeg_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        
+        if result.returncode != 0:
+            logger.error(f"FFmpeg error: {result.stderr}")
+            return None
+        
+        logger.info(f"Successfully added subtitles to video: {output_path}")
+        return output_path
+        
+    except Exception as e:
+        logger.error(f"Error adding subtitles to video: {str(e)}")
         return None
 
 def process_srt_file(subtitle_path, max_words_per_line=7, is_thai=False):
     """
-    Process an SRT file to improve subtitle formatting and prevent overlapping.
+    Process SRT file to improve formatting and prevent overlapping.
     
     Args:
         subtitle_path: Path to the SRT file
-        max_words_per_line: Maximum number of words per line
+        max_words_per_line: Maximum words per line
         is_thai: Whether the subtitles are in Thai
         
     Returns:
@@ -973,11 +460,10 @@ def process_srt_file(subtitle_path, max_words_per_line=7, is_thai=False):
                             # Join Thai words without spaces, but keep spaces for non-Thai
                             subtitle_text = ""
                             for word in subtitle_words:
-                                if any(c in THAI_CHARS for c in word):
-                                    subtitle_text += word
+                                # Add space only for non-Thai characters
+                                if any(ord(c) < 0x0E00 or ord(c) > 0x0E7F for c in word):
+                                    subtitle_text += " " + word
                                 else:
-                                    if subtitle_text and not subtitle_text.endswith(" "):
-                                        subtitle_text += " "
                                     subtitle_text += word
                             
                             # Calculate timing for this subtitle
@@ -1158,6 +644,97 @@ def process_srt_file(subtitle_path, max_words_per_line=7, is_thai=False):
         logger.error(f"Error processing SRT file: {str(e)}")
         return subtitle_path
 
+def get_video_info(video_path):
+    try:
+        import subprocess
+        result = subprocess.run(["ffprobe", "-v", "error", "-show_streams", "-print_format", "json", video_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if result.returncode != 0:
+            logger.error(f"FFprobe error: {result.stderr}")
+            return None
+        video_info = json.loads(result.stdout)
+        for stream in video_info['streams']:
+            if stream['codec_type'] == 'video':
+                return {
+                    'width': stream['width'],
+                    'height': stream['height']
+                }
+    except Exception as e:
+        logger.error(f"Error getting video info: {str(e)}")
+        return None
+
+def convert_srt_to_ass(srt_path, ass_path, font_name, font_size, line_color, outline_color, word_color, alignment, margin_v, subtitle_style, max_width, all_caps, font_formatting):
+    try:
+        import pysubs2
+        subs = pysubs2.load(srt_path, encoding="utf-8")
+        
+        style = pysubs2.SSAStyle()
+        style.fontname = font_name
+        style.fontsize = font_size
+        style.primarycolor = line_color
+        style.outlinecolor = outline_color
+        style.backcolor = "&H80000000"  # Semi-transparent black background
+        style.bold = False
+        style.italic = False
+        style.underline = False
+        style.strikeout = False
+        style.scalex = 100
+        style.scaley = 100
+        style.spacing = 0
+        style.angle = 0
+        style.borderstyle = 1
+        style.outline = 1
+        style.shadow = 0
+        style.alignment = alignment
+        style.marginl = 10
+        style.marginr = 10
+        style.marginv = margin_v
+        
+        subs.styles["Default"] = style
+        
+        if subtitle_style == "highlight":
+            # Highlight style: yellow background for highlighted words
+            for line in subs:
+                for word in line.text.split():
+                    if word.startswith("\\"):
+                        # Skip formatting tags
+                        continue
+                    line.text = line.text.replace(word, f"{{\\1c&H{word_color}&}}{word}{{\\r}}")
+        
+        elif subtitle_style == "karaoke":
+            # Karaoke style: fill in the text as it's sung
+            for line in subs:
+                words = line.text.split()
+                duration = (line.end - line.start).total_seconds()
+                word_duration = duration / len(words)
+                start_time = line.start
+                for word in words:
+                    if word.startswith("\\"):
+                        # Skip formatting tags
+                        continue
+                    end_time = start_time + timedelta(seconds=word_duration)
+                    line.text = line.text.replace(word, f"{{\\t({start_time.total_seconds()}, {end_time.total_seconds()})\\1c&H{word_color}&}}{word}{{\\r}}")
+                    start_time = end_time
+        
+        elif subtitle_style == "word_by_word":
+            # Word by word style: display one word at a time
+            for line in subs:
+                words = line.text.split()
+                duration = (line.end - line.start).total_seconds()
+                word_duration = duration / len(words)
+                start_time = line.start
+                for word in words:
+                    if word.startswith("\\"):
+                        # Skip formatting tags
+                        continue
+                    end_time = start_time + timedelta(seconds=word_duration)
+                    line.text = line.text.replace(word, f"{{\\t({start_time.total_seconds()}, {end_time.total_seconds()})\\1c&H{word_color}&}}{word}{{\\r}}")
+                    start_time = end_time
+        
+        subs.save(ass_path, encoding="utf-8")
+        
+    except Exception as e:
+        logger.error(f"Error converting SRT to ASS: {str(e)}")
+
 def process_captioning_v1(video_url, captions, settings=None, job_id=None, webhook_url=None):
     """
     Process video captioning request with enhanced Thai language support.
@@ -1287,25 +864,25 @@ def process_captioning_v1(video_url, captions, settings=None, job_id=None, webho
             video_path=video_path,
             subtitle_path=subtitle_path,
             output_path=output_path,
-            job_id=job_id,
             font_name=font_name,
             font_size=font_size,
+            position=position,
             margin_v=margin_v,
             subtitle_style=subtitle_style,
             max_width=max_width,
-            position=position,
-            max_words_per_line=max_words_per_line,
             line_color=line_color,
             word_color=word_color,
             outline_color=outline_color,
             all_caps=all_caps,
+            max_words_per_line=max_words_per_line,
             x=x,
             y=y,
             alignment=alignment,
             bold=bold,
             italic=italic,
             underline=underline,
-            strikeout=strikeout
+            strikeout=strikeout,
+            job_id=job_id
         )
         
         if not result:

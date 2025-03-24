@@ -194,9 +194,8 @@ def process_transcribe_media(media_url, task, include_text, include_srt, include
             # Load the audio file
             audio = AudioSegment.from_file(input_filename)
             
-            # Split into 10-minute chunks
-            chunk_length_ms = 10 * 60 * 1000  # 10 minutes in milliseconds
-            chunks = []
+            # Split into 5-minute chunks
+            chunk_length_ms = 5 * 60 * 1000  # 5 minutes in milliseconds
             
             # Create temporary directory for chunks
             temp_dir = tempfile.mkdtemp()
@@ -226,16 +225,24 @@ def process_transcribe_media(media_url, task, include_text, include_srt, include
                 time_offset = i * chunk_length_ms / 1000  # in seconds
                 
                 for segment in chunk_result['segments']:
-                    segment['start'] += time_offset
-                    segment['end'] += time_offset
+                    # Apply a small offset to improve synchronization with voice-over
+                    voice_over_offset = -0.2  # 200ms earlier to match voice-over delay in caption_video.py
+                    
+                    # Apply the offset but ensure we don't go below 0
+                    segment['start'] = max(0, segment['start'] + time_offset + voice_over_offset)
+                    segment['end'] = max(segment['start'] + 0.8, segment['end'] + time_offset + voice_over_offset)  # Ensure minimum 800ms duration
+                    
+                    # Ensure maximum duration of 2.0 seconds for better synchronization
+                    if segment['end'] - segment['start'] > 2.0:
+                        segment['end'] = segment['start'] + 2.0
                     
                     # Adjust word timestamps if present
                     if word_timestamps and 'words' in segment:
                         for word in segment['words']:
                             if 'start' in word:
-                                word['start'] += time_offset
+                                word['start'] = max(0, word['start'] + time_offset + voice_over_offset)
                             if 'end' in word:
-                                word['end'] += time_offset
+                                word['end'] = max(word.get('start', 0) + 0.1, word['end'] + time_offset + voice_over_offset)
                 
                 # Add segments to the full list
                 all_segments.extend(chunk_result['segments'])
@@ -253,152 +260,162 @@ def process_transcribe_media(media_url, task, include_text, include_srt, include
             for chunk_file in chunk_files:
                 try:
                     os.remove(chunk_file)
-                except:
-                    pass
+                except Exception as e:
+                    logger.warning(f"Failed to remove temporary chunk file {chunk_file}: {str(e)}")
+            
             try:
                 os.rmdir(temp_dir)
-            except:
-                pass
-                
-            logger.info(f"Completed processing {len(chunk_files)} chunks for Thai audio")
+            except Exception as e:
+                logger.warning(f"Failed to remove temporary directory {temp_dir}: {str(e)}")
+            
         else:
             # For non-Thai languages, use the standard approach
             result = model.transcribe(input_filename, **options)
         
-        # Post-process Thai text if needed
+        # Process Thai text to ensure proper encoding and spacing
         if is_thai:
             logger.info("Processing Thai text to ensure proper encoding")
             result['text'] = postprocess_thai_text(result['text'])
             
-            # Also process segment text
+            # Process segments for Thai text
             for segment in result['segments']:
-                segment['text'] = postprocess_thai_text(segment['text'])
-                
-                # Process word timestamps if available
-                if word_timestamps and 'words' in segment:
-                    for word in segment['words']:
-                        if 'word' in word:
-                            word['word'] = postprocess_thai_text(word['word'])
+                if 'text' in segment:
+                    segment['text'] = postprocess_thai_text(segment['text'])
+                    
+                    # Fix common Thai name misspellings
+                    segment['text'] = fix_thai_names(segment['text'])
+                    
+                    # Ensure proper spacing for Thai text
+                    segment['text'] = fix_thai_spacing(segment['text'])
         
-        # For translation task, the result['text'] will be in English
-        text = None
-        srt_file = None
-        segments_file = None
+        # Generate output files
+        output_files = {}
         
-        # Generate output files based on requested formats
-        base_output_filename = os.path.join(STORAGE_PATH, f"{job_id}")
-        
-        # Create text file if requested
         if include_text:
-            text = os.path.join(STORAGE_PATH, f"{job_id}.txt")
-            with open(text, "w", encoding="utf-8") as f:
+            # Generate text file
+            text_file = os.path.join(STORAGE_PATH, f"{os.path.splitext(os.path.basename(input_filename))[0]}_{task}.txt")
+            with open(text_file, 'w', encoding='utf-8') as f:
                 f.write(result['text'])
-            logger.info(f"Created text file: {text}")
+            output_files['text'] = text_file
         
-        # Create SRT file if requested
         if include_srt:
-            srt_file = os.path.join(STORAGE_PATH, f"{job_id}.srt")
+            # Generate SRT file
+            srt_file = os.path.join(STORAGE_PATH, f"{os.path.splitext(os.path.basename(input_filename))[0]}_{task}.srt")
             
-            # For Thai language, we need to post-process the SRT content
-            if is_thai:
-                logger.info("Generating SRT file with Thai-specific processing")
-                srt_content = []
-                
-                # Maximum character count per subtitle for Thai (to prevent overlapping)
-                max_thai_chars_per_subtitle = 60
-                
-                for i, segment in enumerate(result['segments']):
-                    start_time = timedelta(seconds=segment['start'])
-                    end_time = timedelta(seconds=segment['end'])
-                    
-                    # Apply Thai-specific post-processing to the text
-                    processed_text = postprocess_thai_text(segment['text'])
-                    
-                    # If text is too long, split it into multiple subtitles
-                    if len(processed_text) > max_thai_chars_per_subtitle:
-                        # Try to find a good breaking point (punctuation or space)
-                        break_points = [m.start() for m in re.finditer(r'[.,!?;: ]', processed_text)]
-                        
-                        # Filter break points to those in the middle section of the text
-                        middle_break_points = [p for p in break_points if p > max_thai_chars_per_subtitle/2 and p < max_thai_chars_per_subtitle]
-                        
-                        if middle_break_points:
-                            # Use the break point closest to the max length
-                            break_point = min(middle_break_points, key=lambda x: abs(x - max_thai_chars_per_subtitle/2))
-                            
-                            # Calculate time for the split
-                            total_duration = (end_time - start_time).total_seconds()
-                            mid_time = start_time + timedelta(seconds=total_duration * (break_point / len(processed_text)))
-                            
-                            # Create two subtitle entries
-                            srt_content.append(
-                                srt.Subtitle(
-                                    index=i+1,
-                                    start=start_time,
-                                    end=mid_time,
-                                    content=processed_text[:break_point].strip()
-                                )
-                            )
-                            
-                            srt_content.append(
-                                srt.Subtitle(
-                                    index=i+2,
-                                    start=mid_time,
-                                    end=end_time,
-                                    content=processed_text[break_point:].strip()
-                                )
-                            )
-                        else:
-                            # If no good break point, just truncate with ellipsis
-                            srt_content.append(
-                                srt.Subtitle(
-                                    index=i+1,
-                                    start=start_time,
-                                    end=end_time,
-                                    content=processed_text[:max_thai_chars_per_subtitle-3] + "..."
-                                )
-                            )
-                    else:
-                        # Create SRT subtitle entry
-                        srt_content.append(
-                            srt.Subtitle(
-                                index=i+1,
-                                start=start_time,
-                                end=end_time,
-                                content=processed_text
-                            )
-                        )
-                
-                # Write the SRT file with proper encoding
-                with open(srt_file, "w", encoding="utf-8-sig") as f:
-                    f.write(srt.compose(srt_content))
-            else:
-                # Use standard Whisper SRT writer for non-Thai languages
-                with open(srt_file, "w", encoding="utf-8-sig") as f:
-                    writer = WriteSRT(output_dir=None)
-                    writer.write_result(result, file=f)
+            # Ensure segments are sorted by start time
+            sorted_segments = sorted(result['segments'], key=lambda x: x['start'])
             
-            logger.info(f"Created SRT file: {srt_file}")
+            # Add a small gap between segments to prevent blinking
+            gap = 0.25  # 250ms gap
+            
+            # Process segments to ensure proper timing and prevent overlapping
+            for i in range(1, len(sorted_segments)):
+                prev_segment = sorted_segments[i-1]
+                curr_segment = sorted_segments[i]
+                
+                # If current segment starts before previous ends (plus gap)
+                if curr_segment['start'] < prev_segment['end'] + gap:
+                    # Adjust current start time to after previous end (plus gap)
+                    curr_segment['start'] = prev_segment['end'] + gap
+                    
+                    # Ensure minimum duration is maintained (800ms)
+                    if curr_segment['end'] < curr_segment['start'] + 0.8:
+                        curr_segment['end'] = curr_segment['start'] + 0.8
+            
+            # Generate SRT content
+            with open(srt_file, 'w', encoding='utf-8') as f:
+                for i, segment in enumerate(sorted_segments, 1):
+                    # Format timestamps
+                    start_time = format_timestamp(segment['start'])
+                    end_time = format_timestamp(segment['end'])
+                    
+                    # Write SRT entry
+                    f.write(f"{i}\n")
+                    f.write(f"{start_time} --> {end_time}\n")
+                    f.write(f"{segment['text']}\n\n")
+            
+            output_files['srt'] = srt_file
         
-        # Create segments file if requested
         if include_segments:
-            segments_file = os.path.join(STORAGE_PATH, f"{job_id}.json")
-            with open(segments_file, "w", encoding="utf-8") as f:
+            # Generate segments JSON file
+            segments_file = os.path.join(STORAGE_PATH, f"{os.path.splitext(os.path.basename(input_filename))[0]}_{task}_segments.json")
+            with open(segments_file, 'w', encoding='utf-8') as f:
                 json.dump(result['segments'], f, ensure_ascii=False, indent=2)
-            logger.info(f"Created segments file: {segments_file}")
+            output_files['segments'] = segments_file
         
-        os.remove(input_filename)
-        logger.info(f"Removed local file: {input_filename}")
-        logger.info(f"{task.capitalize()} successful, output type: {response_type}")
-
-        if response_type == "direct":
-            return text, srt_file, segments_file
+        # Return results based on response_type
+        if response_type == 'cloud':
+            # Upload files to cloud storage
+            cloud_urls = {}
+            for file_type, file_path in output_files.items():
+                try:
+                    from services.cloud_storage import upload_to_cloud_storage
+                    cloud_path = f"transcriptions/{os.path.basename(file_path)}"
+                    cloud_url = upload_to_cloud_storage(file_path, cloud_path)
+                    cloud_urls[file_type] = cloud_url
+                except Exception as e:
+                    logger.error(f"Failed to upload {file_type} file to cloud storage: {str(e)}")
+                    cloud_urls[file_type] = f"file://{file_path}"
+            
+            return {
+                'cloud_urls': cloud_urls,
+                'local_paths': output_files,
+                'text': result['text'] if include_text else None
+            }
         else:
-            return text, srt_file, segments_file
-
+            # Return local file paths
+            return {
+                'local_paths': output_files,
+                'text': result['text'] if include_text else None
+            }
+    
     except Exception as e:
-        logger.error(f"{task.capitalize()} failed: {str(e)}")
+        logger.error(f"Error in process_transcribe_media: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
         raise
+
+def fix_thai_names(text):
+    """Fix common Thai name misspellings"""
+    # Common name corrections
+    corrections = {
+        'แพกซ์ โรมาน่า': 'แพกซ์ โรมานา',
+        'แพกซ์โรมาน่า': 'แพกซ์โรมานา',
+        'ฮิดเด้น ไทม์ไลน์': 'ฮิดเดน ไทม์ไลน์',
+        'ฮิดเด้นไทม์ไลน์': 'ฮิดเดนไทม์ไลน์'
+    }
+    
+    for wrong, correct in corrections.items():
+        text = text.replace(wrong, correct)
+    
+    return text
+
+def fix_thai_spacing(text):
+    """Fix spacing issues in Thai text"""
+    # Remove spaces between Thai words (but keep spaces between Thai and non-Thai)
+    result = ""
+    prev_is_thai = False
+    
+    for char in text:
+        is_thai = '\u0E00' <= char <= '\u0E7F'
+        
+        if char == ' ':
+            # Only keep the space if transitioning between Thai and non-Thai
+            if not (prev_is_thai and is_thai):
+                result += char
+        else:
+            result += char
+            prev_is_thai = is_thai
+    
+    return result
+
+def format_timestamp(seconds):
+    """Format seconds to SRT timestamp format (HH:MM:SS,mmm)"""
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    seconds = seconds % 60
+    milliseconds = int((seconds - int(seconds)) * 1000)
+    return f"{hours:02d}:{minutes:02d}:{int(seconds):02d},{milliseconds:03d}"
 
 def align_script_with_segments(script_text, segments, output_srt_path, language="th"):
     """
