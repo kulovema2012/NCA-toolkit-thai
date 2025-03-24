@@ -8,6 +8,7 @@ from datetime import timedelta
 from whisper.utils import WriteSRT, WriteVTT
 from services.file_management import download_file
 import logging
+from typing import Dict, List, Optional, Union, Any
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -17,26 +18,19 @@ logging.basicConfig(level=logging.INFO)
 STORAGE_PATH = "/tmp/"
 
 # Thai language specific constants
-THAI_VOWELS = [
-    '\u0e30', '\u0e31', '\u0e32', '\u0e33', '\u0e34', '\u0e35', '\u0e36', '\u0e37', '\u0e38', '\u0e39',
-    '\u0e47', '\u0e48', '\u0e49', '\u0e4a', '\u0e4b', '\u0e4c', '\u0e4d'
-]
+THAI_CONSONANTS = 'กขฃคฅฆงจฉชซฌญฎฏฐฑฒณดตถทธนบปผฝพฟภมยรลวศษสหฬอฮ'
+THAI_VOWELS = 'ะัาำิีึืุูเแโใไๅ'
+THAI_TONEMARKS = '่้๊๋'
+THAI_CHARS = THAI_CONSONANTS + THAI_VOWELS + THAI_TONEMARKS
 
-THAI_CONSONANTS = [
-    '\u0e01', '\u0e02', '\u0e03', '\u0e04', '\u0e05', '\u0e06', '\u0e07', '\u0e08', '\u0e09', '\u0e0a',
-    '\u0e0b', '\u0e0c', '\u0e0d', '\u0e0e', '\u0e0f', '\u0e10', '\u0e11', '\u0e12', '\u0e13', '\u0e14',
-    '\u0e15', '\u0e16', '\u0e17', '\u0e18', '\u0e19', '\u0e1a', '\u0e1b', '\u0e1c', '\u0e1d', '\u0e1e',
-    '\u0e1f', '\u0e20', '\u0e21', '\u0e22', '\u0e23', '\u0e24', '\u0e25', '\u0e26', '\u0e27', '\u0e28',
-    '\u0e29', '\u0e2a', '\u0e2b', '\u0e2c', '\u0e2d', '\u0e2e'
-]
-
-# Common Thai word corrections (misspelled -> correct)
+# Dictionary of common Thai words that might be incorrectly transcribed
 THAI_WORD_CORRECTIONS = {
-    'ครับ': 'ครับ',
-    'ค่ะ': 'ค่ะ',
-    'นะคะ': 'นะคะ',
-    'นะครับ': 'นะครับ',
-    # Add more common corrections as needed
+    # Common incorrect transcriptions from Whisper
+    "thaler feet": "ทั้งหมด",
+    "stylist": "เรื่องราวของ",
+    "Flatast": "ภาพที่น่าสนใจ",
+    "pc": "พีซี",
+    # Add more corrections as needed
 }
 
 def clean_thai_text(text):
@@ -94,31 +88,70 @@ def postprocess_thai_text(text):
     except Exception as e:
         logger.warning(f"Error during Thai text encoding: {str(e)}")
     
+    # Replace common incorrect transcriptions with correct Thai words
+    for incorrect, correct in THAI_WORD_CORRECTIONS.items():
+        text = re.sub(r'\b' + re.escape(incorrect) + r'\b', correct, text, flags=re.IGNORECASE)
+    
     # Try to use PyThaiNLP for more accurate Thai text processing if available
     try:
-        from pythainlp import correct
+        from pythainlp import word_tokenize, correct
+        
+        # First try to correct misspelled Thai words
         text = correct(text)
-        logger.info("Used PyThaiNLP for Thai text correction")
+        
+        # Detect mixed language segments and process them separately
+        segments = []
+        current_segment = ""
+        current_is_thai = False
+        
+        for char in text:
+            is_thai_char = char in THAI_CHARS
+            
+            # If we're changing language types, process the previous segment
+            if current_segment and is_thai_char != current_is_thai:
+                if current_is_thai:
+                    # Process Thai segment with PyThaiNLP
+                    tokens = word_tokenize(current_segment)
+                    processed_segment = ''.join(tokens)
+                    segments.append(processed_segment)
+                else:
+                    # Keep English segment as is
+                    segments.append(current_segment)
+                
+                # Reset for new segment
+                current_segment = ""
+            
+            current_segment += char
+            current_is_thai = is_thai_char
+        
+        # Process the last segment
+        if current_segment:
+            if current_is_thai:
+                tokens = word_tokenize(current_segment)
+                processed_segment = ''.join(tokens)
+                segments.append(processed_segment)
+            else:
+                segments.append(current_segment)
+        
+        # Join all processed segments
+        text = ''.join(segments)
+        
+        logger.info("Used PyThaiNLP for Thai text processing")
     except ImportError:
-        logger.warning("PyThaiNLP not available for Thai text correction")
+        logger.warning("PyThaiNLP not available for Thai text processing")
     except Exception as e:
-        logger.warning(f"Error using PyThaiNLP for correction: {str(e)}")
-    
-    # Fix common Thai transcription errors
-    for incorrect, correct in THAI_WORD_CORRECTIONS.items():
-        text = text.replace(incorrect, correct)
+        logger.warning(f"Error using PyThaiNLP for processing: {str(e)}")
     
     # Fix spacing issues in Thai text
     # Thai doesn't use spaces between words, but Whisper might add them incorrectly
     def fix_thai_spacing(match):
-        # Don't add space between Thai consonant and vowel
-        if match.group(1)[-1] in THAI_CONSONANTS and match.group(2)[0] in THAI_VOWELS:
-            return match.group(1) + match.group(2)
+        # Don't add space between Thai characters
+        if any(c in THAI_CHARS for c in match.group(1)) and any(c in THAI_CHARS for c in match.group(3)):
+            return match.group(1) + match.group(3)
         return match.group(0)  # Keep as is
     
     # Find spaces between Thai characters and fix them if needed
-    thai_char_pattern = r'([^\s\u0E00-\u0E7F]+)(\s+)([^\s\u0E00-\u0E7F]+)'
-    text = re.sub(thai_char_pattern, fix_thai_spacing, text)
+    text = re.sub(r'([^\s]+)(\s+)([^\s]+)', fix_thai_spacing, text)
     
     return text
 

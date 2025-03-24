@@ -854,6 +854,20 @@ def process_srt_file(subtitle_path, max_words_per_line=7, is_thai=False):
     """
     logger.info(f"Processing SRT file: {subtitle_path}")
     
+    # Thai language specific constants
+    THAI_CONSONANTS = 'กขฃคฅฆงจฉชซฌญฎฏฐฑฒณดตถทธนบปผฝพฟภมยรลวศษสหฬอฮ'
+    THAI_VOWELS = 'ะัาำิีึืุูเแโใไๅ'
+    THAI_TONEMARKS = '่้๊๋'
+    THAI_CHARS = THAI_CONSONANTS + THAI_VOWELS + THAI_TONEMARKS
+    
+    # Dictionary of common Thai words that might be incorrectly transcribed
+    THAI_WORD_CORRECTIONS = {
+        "thaler feet": "ทั้งหมด",
+        "stylist": "เรื่องราวของ",
+        "Flatast": "ภาพที่น่าสนใจ",
+        "pc": "พีซี",
+    }
+    
     try:
         # Read the SRT file
         with open(subtitle_path, 'r', encoding='utf-8-sig') as f:
@@ -870,37 +884,116 @@ def process_srt_file(subtitle_path, max_words_per_line=7, is_thai=False):
         processed_subtitles = []
         
         # Maximum characters per line for Thai
-        max_thai_chars_per_line = 40
+        max_thai_chars_per_line = 30  # Reduced from 40 to prevent overlapping
         
-        # Add a small gap between subtitles to prevent blinking (100ms)
-        gap_duration = timedelta(milliseconds=100)
+        # Add a small gap between subtitles to prevent blinking (150ms)
+        gap_duration = timedelta(milliseconds=150)  # Increased from 100ms
         
         for i, subtitle in enumerate(subtitles):
             # Get the text content
             text = subtitle.content
             
-            # For Thai text, limit by characters instead of words
+            # Replace common incorrect transcriptions with correct Thai words
             if is_thai:
-                # Try to use PyThaiNLP for word segmentation if available
+                for incorrect, correct in THAI_WORD_CORRECTIONS.items():
+                    text = re.sub(r'\b' + re.escape(incorrect) + r'\b', correct, text, flags=re.IGNORECASE)
+            
+            # For Thai text, use PyThaiNLP for word segmentation if available
+            if is_thai:
                 try:
                     from pythainlp.tokenize import word_tokenize
-                    words = word_tokenize(text)
-                    logger.info(f"Used PyThaiNLP for word segmentation: {len(words)} words")
+                    
+                    # First normalize the text
+                    text = unicodedata.normalize('NFC', text)
+                    
+                    # Detect and process mixed language segments
+                    segments = []
+                    current_segment = ""
+                    current_is_thai = False
+                    
+                    for char in text:
+                        is_thai_char = char in THAI_CHARS
+                        
+                        # If we're changing language types, process the previous segment
+                        if current_segment and is_thai_char != current_is_thai:
+                            segments.append(current_segment)
+                            current_segment = ""
+                        
+                        current_segment += char
+                        current_is_thai = is_thai_char
+                    
+                    # Process the last segment
+                    if current_segment:
+                        segments.append(current_segment)
+                    
+                    # Process each segment for word tokenization
+                    processed_segments = []
+                    for segment in segments:
+                        if any(c in THAI_CHARS for c in segment):
+                            # Thai segment - tokenize and join
+                            words = word_tokenize(segment)
+                            processed_segments.append(words)
+                        else:
+                            # Non-Thai segment - split by spaces
+                            words = segment.split()
+                            processed_segments.append(words)
+                    
+                    # Flatten the list of words
+                    all_words = [word for segment in processed_segments for word in segment]
                     
                     # Split into lines with max_words_per_line
-                    if len(words) > max_words_per_line:
+                    if len(all_words) > max_words_per_line:
                         lines = []
-                        for j in range(0, len(words), max_words_per_line):
-                            line = ''.join(words[j:j+max_words_per_line])
+                        for j in range(0, len(all_words), max_words_per_line):
+                            line_words = all_words[j:j+max_words_per_line]
+                            # Join Thai words without spaces, but keep spaces for non-Thai
+                            line = ""
+                            for word in line_words:
+                                if any(c in THAI_CHARS for c in word):
+                                    line += word
+                                else:
+                                    if line and not line.endswith(" "):
+                                        line += " "
+                                    line += word
                             lines.append(line)
                         text = '\n'.join(lines)
+                    else:
+                        # Join all words appropriately
+                        text = ""
+                        for word in all_words:
+                            if any(c in THAI_CHARS for c in word):
+                                text += word
+                            else:
+                                if text and not text.endswith(" "):
+                                    text += " "
+                                text += word
+                    
+                    logger.info(f"Used PyThaiNLP for word segmentation: {len(all_words)} words")
                 except ImportError:
                     # Fallback to character-based splitting
                     if len(text) > max_thai_chars_per_line:
                         lines = []
-                        for j in range(0, len(text), max_thai_chars_per_line):
-                            line = text[j:j+max_thai_chars_per_line]
-                            lines.append(line)
+                        # Try to split at spaces or punctuation
+                        split_points = [m.start() for m in re.finditer(r'[.,!?;: ]', text)]
+                        
+                        current_pos = 0
+                        while current_pos < len(text):
+                            # Find the best split point within the character limit
+                            end_pos = min(current_pos + max_thai_chars_per_line, len(text))
+                            
+                            # Look for a good split point
+                            good_splits = [p for p in split_points if p > current_pos and p < end_pos]
+                            
+                            if good_splits:
+                                # Use the last good split point
+                                split_at = max(good_splits)
+                                lines.append(text[current_pos:split_at].strip())
+                                current_pos = split_at
+                            else:
+                                # No good split point, just use the max length
+                                lines.append(text[current_pos:end_pos].strip())
+                                current_pos = end_pos
+                        
                         text = '\n'.join(lines)
                 except Exception as e:
                     logger.warning(f"Error during Thai word segmentation: {str(e)}")
@@ -921,7 +1014,13 @@ def process_srt_file(subtitle_path, max_words_per_line=7, is_thai=False):
             if i < len(subtitles) - 1:
                 next_start = subtitles[i+1].start
                 if end_time + gap_duration < next_start:
-                    end_time = subtitle.end - gap_duration
+                    # End this subtitle earlier to create a gap
+                    end_time = subtitle.end
+                else:
+                    # Adjust both this end time and next start time
+                    middle_point = subtitle.end + (next_start - subtitle.end) / 2
+                    end_time = middle_point - gap_duration / 2
+                    # We'll adjust the next subtitle's start time when we process it
             
             # Create a new subtitle with the processed text
             processed_subtitles.append(
@@ -932,6 +1031,15 @@ def process_srt_file(subtitle_path, max_words_per_line=7, is_thai=False):
                     content=text
                 )
             )
+            
+            # If not the last subtitle, adjust the start time of the next subtitle
+            if i < len(subtitles) - 1 and end_time + gap_duration > subtitles[i+1].start:
+                subtitles[i+1] = srt.Subtitle(
+                    index=subtitles[i+1].index,
+                    start=end_time + gap_duration,
+                    end=subtitles[i+1].end,
+                    content=subtitles[i+1].content
+                )
         
         # Write the processed SRT file
         processed_path = subtitle_path.replace('.srt', '_processed.srt')
