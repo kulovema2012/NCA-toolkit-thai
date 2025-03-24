@@ -84,8 +84,15 @@ def postprocess_thai_text(text):
     if not text:
         return text
     
-    # Normalize Unicode characters
+    # Normalize Unicode characters (NFC is better for Thai)
     text = unicodedata.normalize('NFC', text)
+    
+    # Ensure text is properly encoded as UTF-8
+    try:
+        # Force re-encoding to ensure proper UTF-8
+        text = text.encode('utf-8', errors='ignore').decode('utf-8')
+    except Exception as e:
+        logger.warning(f"Error during Thai text encoding: {str(e)}")
     
     # Fix common Thai transcription errors
     for incorrect, correct in THAI_WORD_CORRECTIONS.items():
@@ -211,6 +218,9 @@ def process_transcribe_media(media_url, task, include_text, include_srt, include
                 logger.info("Generating SRT file with Thai-specific processing")
                 srt_content = []
                 
+                # Maximum character count per subtitle for Thai (to prevent overlapping)
+                max_thai_chars_per_subtitle = 60
+                
                 for i, segment in enumerate(result['segments']):
                     start_time = timedelta(seconds=segment['start'])
                     end_time = timedelta(seconds=segment['end'])
@@ -218,22 +228,67 @@ def process_transcribe_media(media_url, task, include_text, include_srt, include
                     # Apply Thai-specific post-processing to the text
                     processed_text = postprocess_thai_text(segment['text'])
                     
-                    # Create SRT subtitle entry
-                    srt_content.append(
-                        srt.Subtitle(
-                            index=i+1,
-                            start=start_time,
-                            end=end_time,
-                            content=processed_text
+                    # If text is too long, split it into multiple subtitles
+                    if len(processed_text) > max_thai_chars_per_subtitle:
+                        # Try to find a good breaking point (punctuation or space)
+                        break_points = [m.start() for m in re.finditer(r'[.,!?;: ]', processed_text)]
+                        
+                        # Filter break points to those in the middle section of the text
+                        middle_break_points = [p for p in break_points if p > max_thai_chars_per_subtitle/2 and p < max_thai_chars_per_subtitle]
+                        
+                        if middle_break_points:
+                            # Use the break point closest to the max length
+                            break_point = min(middle_break_points, key=lambda x: abs(x - max_thai_chars_per_subtitle/2))
+                            
+                            # Calculate time for the split
+                            total_duration = (end_time - start_time).total_seconds()
+                            mid_time = start_time + timedelta(seconds=total_duration * (break_point / len(processed_text)))
+                            
+                            # Create two subtitle entries
+                            srt_content.append(
+                                srt.Subtitle(
+                                    index=i+1,
+                                    start=start_time,
+                                    end=mid_time,
+                                    content=processed_text[:break_point].strip()
+                                )
+                            )
+                            
+                            srt_content.append(
+                                srt.Subtitle(
+                                    index=i+2,
+                                    start=mid_time,
+                                    end=end_time,
+                                    content=processed_text[break_point:].strip()
+                                )
+                            )
+                        else:
+                            # If no good break point, just truncate with ellipsis
+                            srt_content.append(
+                                srt.Subtitle(
+                                    index=i+1,
+                                    start=start_time,
+                                    end=end_time,
+                                    content=processed_text[:max_thai_chars_per_subtitle-3] + "..."
+                                )
+                            )
+                    else:
+                        # Create SRT subtitle entry
+                        srt_content.append(
+                            srt.Subtitle(
+                                index=i+1,
+                                start=start_time,
+                                end=end_time,
+                                content=processed_text
+                            )
                         )
-                    )
                 
                 # Write the SRT file with proper encoding
-                with open(srt_file, "w", encoding="utf-8") as f:
+                with open(srt_file, "w", encoding="utf-8-sig") as f:
                     f.write(srt.compose(srt_content))
             else:
                 # Use standard Whisper SRT writer for non-Thai languages
-                with open(srt_file, "w", encoding="utf-8") as f:
+                with open(srt_file, "w", encoding="utf-8-sig") as f:
                     writer = WriteSRT(output_dir=None)
                     writer.write_result(result, file=f)
             

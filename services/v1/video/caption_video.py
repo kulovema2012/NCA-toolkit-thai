@@ -331,14 +331,14 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, job_id=N
                 if not bold:
                     bold = True
                 if not max_words_per_line and is_thai:
-                    max_words_per_line = 4
+                    max_words_per_line = 3  # Reduced from 4 to 3 for Thai
                 if not max_words_per_line:
                     max_words_per_line = 7
                 if not max_width:
                     max_width = 80
                 if is_thai and not font_name:
                     font_name = "Sarabun"  # Best overall Thai font
-                
+            
             elif subtitle_style == "modern":
                 # Modern style: white text with semi-transparent background
                 if not line_color:
@@ -348,12 +348,12 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, job_id=N
                 if not font_size:
                     font_size = 28
                 if not max_words_per_line and is_thai:
-                    max_words_per_line = 3
+                    max_words_per_line = 2  # Reduced from 3 to 2 for Thai
                 if not max_width:
                     max_width = 70
                 if is_thai and not font_name:
                     font_name = "Sarabun"  # Best overall Thai font
-                
+            
             elif subtitle_style == "cinematic":
                 # Cinematic style: larger text, bottom position, wider
                 if not line_color:
@@ -367,7 +367,7 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, job_id=N
                 if not margin_v:
                     margin_v = 60
                 if not max_words_per_line and is_thai:
-                    max_words_per_line = 3
+                    max_words_per_line = 2  # Reduced from 3 to 2 for Thai
                 if not max_width:
                     max_width = 90
                 if not bold:
