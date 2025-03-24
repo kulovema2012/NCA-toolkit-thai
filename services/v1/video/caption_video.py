@@ -14,6 +14,8 @@ from datetime import datetime, timedelta
 import functools
 import random
 from pathlib import Path
+import srt
+from datetime import timedelta
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -755,6 +757,9 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, job_id=N
             if subtitle_style != "premium":
                 spacing = 0.3  # Increased spacing to prevent tone mark overlays
         
+        # Process SRT file to improve subtitle formatting and prevent overlapping
+        processed_subtitle_path = process_srt_file(subtitle_path, max_words_per_line, is_thai)
+        
         # Build the FFmpeg command using the SRT subtitle file directly
         subtitle_style = f"FontName={font_name},FontSize={font_size},PrimaryColour={primary_color},OutlineColour={outline_color_value},BorderStyle={border_style},Outline={outline_width},Shadow={shadow},{position_style}"
         
@@ -767,28 +772,27 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, job_id=N
             elif alignment == "center":
                 subtitle_style += ",Alignment=2"  # Bottom-center (default)
         
-        # Use a very simple approach for Windows compatibility
-        if os.name == 'nt':  # Windows
-            ffmpeg_cmd = [
-                "ffmpeg", "-y",
-                "-i", video_path,
-                "-vf", f"subtitles={limited_subtitle_path}:force_style='{subtitle_style}'",
-                "-c:v", "libx264", "-crf", "18",
-                "-c:a", "copy",
-                "-pix_fmt", "yuv420p",
-                output_path
-            ]
+        # Escape single quotes in the style string for FFmpeg
+        subtitle_style = subtitle_style.replace("'", "\\'")
+        
+        # Determine output file path
+        if output_path:
+            output_file = output_path
         else:
-            # Unix systems - use more advanced subtitle burning
-            ffmpeg_cmd = [
-                "ffmpeg", "-y",
-                "-i", video_path,
-                "-vf", f"subtitles={limited_subtitle_path}:force_style='{subtitle_style}'",
-                "-c:v", "libx264", "-crf", "18",
-                "-c:a", "copy",
-                "-pix_fmt", "yuv420p",
-                output_path
-            ]
+            output_dir = os.path.join(STORAGE_PATH, 'output_videos')
+            os.makedirs(output_dir, exist_ok=True)
+            output_file = os.path.join(output_dir, f"{os.path.splitext(os.path.basename(video_path))[0]}_captioned.mp4")
+        
+        # Build FFmpeg command based on whether we're using burn-in or soft subtitles
+        ffmpeg_cmd = [
+            "ffmpeg", "-y",
+            "-i", video_path,
+            "-vf", f"subtitles={processed_subtitle_path}:force_style='{subtitle_style}'",
+            "-c:v", "libx264", "-crf", "18",
+            "-c:a", "copy",
+            "-pix_fmt", "yuv420p",
+            output_file
+        ]
         
         # Log the command
         logger.info(f"FFmpeg command: {' '.join(ffmpeg_cmd)}")
@@ -835,6 +839,111 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, job_id=N
         import traceback
         logger.error(traceback.format_exc())
         return None
+
+def process_srt_file(subtitle_path, max_words_per_line=7, is_thai=False):
+    """
+    Process an SRT file to improve subtitle formatting and prevent overlapping.
+    
+    Args:
+        subtitle_path: Path to the SRT file
+        max_words_per_line: Maximum number of words per line
+        is_thai: Whether the subtitles are in Thai
+        
+    Returns:
+        Path to the processed SRT file
+    """
+    logger.info(f"Processing SRT file: {subtitle_path}")
+    
+    try:
+        # Read the SRT file
+        with open(subtitle_path, 'r', encoding='utf-8-sig') as f:
+            content = f.read()
+            
+        # Parse the SRT content
+        subtitles = list(srt.parse(content))
+        
+        if not subtitles:
+            logger.warning("No subtitles found in SRT file")
+            return subtitle_path
+            
+        # Process each subtitle
+        processed_subtitles = []
+        
+        # Maximum characters per line for Thai
+        max_thai_chars_per_line = 40
+        
+        # Add a small gap between subtitles to prevent blinking (100ms)
+        gap_duration = timedelta(milliseconds=100)
+        
+        for i, subtitle in enumerate(subtitles):
+            # Get the text content
+            text = subtitle.content
+            
+            # For Thai text, limit by characters instead of words
+            if is_thai:
+                # Try to use PyThaiNLP for word segmentation if available
+                try:
+                    from pythainlp.tokenize import word_tokenize
+                    words = word_tokenize(text)
+                    logger.info(f"Used PyThaiNLP for word segmentation: {len(words)} words")
+                    
+                    # Split into lines with max_words_per_line
+                    if len(words) > max_words_per_line:
+                        lines = []
+                        for j in range(0, len(words), max_words_per_line):
+                            line = ''.join(words[j:j+max_words_per_line])
+                            lines.append(line)
+                        text = '\n'.join(lines)
+                except ImportError:
+                    # Fallback to character-based splitting
+                    if len(text) > max_thai_chars_per_line:
+                        lines = []
+                        for j in range(0, len(text), max_thai_chars_per_line):
+                            line = text[j:j+max_thai_chars_per_line]
+                            lines.append(line)
+                        text = '\n'.join(lines)
+                except Exception as e:
+                    logger.warning(f"Error during Thai word segmentation: {str(e)}")
+            else:
+                # For non-Thai text, split by words
+                words = text.split()
+                if len(words) > max_words_per_line:
+                    lines = []
+                    for j in range(0, len(words), max_words_per_line):
+                        line = ' '.join(words[j:j+max_words_per_line])
+                        lines.append(line)
+                    text = '\n'.join(lines)
+            
+            # Add a gap between this subtitle and the next one
+            end_time = subtitle.end
+            
+            # If not the last subtitle, adjust the end time to add a gap
+            if i < len(subtitles) - 1:
+                next_start = subtitles[i+1].start
+                if end_time + gap_duration < next_start:
+                    end_time = subtitle.end - gap_duration
+            
+            # Create a new subtitle with the processed text
+            processed_subtitles.append(
+                srt.Subtitle(
+                    index=i+1,
+                    start=subtitle.start,
+                    end=end_time,
+                    content=text
+                )
+            )
+        
+        # Write the processed SRT file
+        processed_path = subtitle_path.replace('.srt', '_processed.srt')
+        with open(processed_path, 'w', encoding='utf-8-sig') as f:
+            f.write(srt.compose(processed_subtitles))
+            
+        logger.info(f"Created processed SRT file: {processed_path}")
+        return processed_path
+        
+    except Exception as e:
+        logger.error(f"Error processing SRT file: {str(e)}")
+        return subtitle_path
 
 def process_captioning_v1(video_url, captions, settings=None, job_id=None, webhook_url=None):
     """

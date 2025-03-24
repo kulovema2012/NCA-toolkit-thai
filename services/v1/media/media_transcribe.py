@@ -94,6 +94,16 @@ def postprocess_thai_text(text):
     except Exception as e:
         logger.warning(f"Error during Thai text encoding: {str(e)}")
     
+    # Try to use PyThaiNLP for more accurate Thai text processing if available
+    try:
+        from pythainlp import correct
+        text = correct(text)
+        logger.info("Used PyThaiNLP for Thai text correction")
+    except ImportError:
+        logger.warning("PyThaiNLP not available for Thai text correction")
+    except Exception as e:
+        logger.warning(f"Error using PyThaiNLP for correction: {str(e)}")
+    
     # Fix common Thai transcription errors
     for incorrect, correct in THAI_WORD_CORRECTIONS.items():
         text = text.replace(incorrect, correct)
@@ -109,9 +119,6 @@ def postprocess_thai_text(text):
     # Find spaces between Thai characters and fix them if needed
     thai_char_pattern = r'([^\s\u0E00-\u0E7F]+)(\s+)([^\s\u0E00-\u0E7F]+)'
     text = re.sub(thai_char_pattern, fix_thai_spacing, text)
-    
-    # Fix tone mark positions
-    # (This is a simplified approach, a more comprehensive solution would use Thai NLP libraries)
     
     return text
 
@@ -441,7 +448,7 @@ def align_script_with_segments(script_text, segments, output_srt_path, language=
             )
     
     # Write the SRT file with proper encoding
-    with open(output_srt_path, "w", encoding="utf-8") as f:
+    with open(output_srt_path, "w", encoding="utf-8-sig") as f:
         f.write(srt.compose(srt_content))
     
     logger.info(f"Created aligned SRT file: {output_srt_path}")
