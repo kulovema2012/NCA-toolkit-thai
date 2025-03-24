@@ -159,77 +159,57 @@ def process_transcribe_media(media_url, task, include_text, include_srt, include
     """Transcribe or translate media and return the transcript/translation, SRT or VTT file path."""
     logger.info(f"Starting {task} for media URL: {media_url}")
     input_filename = download_file(media_url, os.path.join(STORAGE_PATH, 'input_media'))
-    logger.info(f"Downloaded media to local file: {input_filename}")
-
+    
+    if not input_filename:
+        raise ValueError("Failed to download media file")
+    
+    # Determine if the language is Thai
+    is_thai = language and language.lower() == 'th'
+    
+    # For Thai language, optimize processing to prevent timeouts
+    if is_thai:
+        logger.info("Thai language detected - using optimized processing settings")
+        # Use smaller chunk sizes for Thai to prevent timeouts
+        chunk_size = 10 * 60  # 10 minute chunks instead of default 30
+        logger.info(f"Using smaller chunk size for Thai: {chunk_size} minutes")
+    else:
+        chunk_size = None  # Use default
+    
     try:
-        # Choose model size based on language and available resources
-        if language and language.lower() in ['th', 'thai']:
-            # Use small model for Thai to reduce memory usage
-            logger.info(f"Using small model for Thai language transcription")
-            model = whisper.load_model("small")
-        else:
-            # Use base model for other languages
-            logger.info(f"Using base model for transcription")
-            model = whisper.load_model("base")
-
-        # Configure transcription/translation options
+        # Load the Whisper model
+        model = whisper.load_model("medium")
+        
+        # Transcribe or translate the audio
+        logger.info(f"Running {task} with model: medium")
+        
+        # Set options based on the task and language
         options = {
             "task": task,
-            "verbose": False,  # Reduce console output
-            "fp16": False,     # Use FP32 to avoid warnings and ensure compatibility
+            "language": language,
+            "verbose": False,
         }
         
-        # Set a timeout for the transcription process
-        import signal
+        if word_timestamps:
+            options["word_timestamps"] = True
         
-        class TimeoutException(Exception):
-            pass
+        # Add chunk size for Thai to prevent timeouts
+        if chunk_size:
+            options["chunk_size"] = chunk_size
         
-        def timeout_handler(signum, frame):
-            raise TimeoutException("Transcription process timed out")
+        # Run the transcription/translation
+        result = model.transcribe(input_filename, **options)
         
-        # Set a 240-second (4 minute) timeout for the transcription process
-        signal.signal(signal.SIGALRM, timeout_handler)
-        signal.alarm(240)
-        
-        try:
-            # If language is specified, set it in the options
-            if language:
-                options["language"] = language
-                logger.info(f"Setting language to {language} for {task}")
-            
-            # Run transcription with optimized memory settings
-            import gc
-            gc.collect()  # Force garbage collection before running memory-intensive process
-            
-            # Run transcription
-            result = model.transcribe(input_filename, **options)
-            
-            # Reset the alarm
-            signal.alarm(0)
-            
-        except TimeoutException:
-            logger.error("Transcription process timed out after 240 seconds")
-            raise Exception("Transcription process timed out. Please try with a shorter audio file.")
-        except Exception as e:
-            # Reset the alarm
-            signal.alarm(0)
-            logger.error(f"Error during transcription: {str(e)}")
-            raise
-        
-        # Process Thai text if needed
-        is_thai = language and language.lower() in ['th', 'thai']
+        # Post-process Thai text if needed
         if is_thai:
             logger.info("Processing Thai text to ensure proper encoding")
-            # Clean the main text
             result['text'] = postprocess_thai_text(result['text'])
             
-            # Clean each segment's text
+            # Also process segment text
             for segment in result['segments']:
                 segment['text'] = postprocess_thai_text(segment['text'])
                 
-                # Also clean word-level timestamps if present
-                if 'words' in segment:
+                # Process word timestamps if available
+                if word_timestamps and 'words' in segment:
                     for word in segment['words']:
                         if 'word' in word:
                             word['word'] = postprocess_thai_text(word['word'])

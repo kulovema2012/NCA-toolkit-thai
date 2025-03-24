@@ -884,10 +884,16 @@ def process_srt_file(subtitle_path, max_words_per_line=7, is_thai=False):
         processed_subtitles = []
         
         # Maximum characters per line for Thai
-        max_thai_chars_per_line = 30  # Reduced from 40 to prevent overlapping
+        max_thai_chars_per_line = 25  # Reduced from 30 to show fewer characters at once
         
-        # Add a small gap between subtitles to prevent blinking (150ms)
-        gap_duration = timedelta(milliseconds=150)  # Increased from 100ms
+        # Maximum words per line for Thai
+        thai_max_words_per_line = 2 if is_thai else max_words_per_line  # Reduced for Thai
+        
+        # Add a small gap between subtitles to prevent blinking (200ms)
+        gap_duration = timedelta(milliseconds=200)  # Increased from 150ms
+        
+        # Maximum duration for any subtitle (to ensure voice-over sync)
+        max_subtitle_duration = timedelta(seconds=2.5)
         
         for i, subtitle in enumerate(subtitles):
             # Get the text content
@@ -941,34 +947,101 @@ def process_srt_file(subtitle_path, max_words_per_line=7, is_thai=False):
                     # Flatten the list of words
                     all_words = [word for segment in processed_segments for word in segment]
                     
-                    # Split into lines with max_words_per_line
-                    if len(all_words) > max_words_per_line:
-                        lines = []
-                        for j in range(0, len(all_words), max_words_per_line):
-                            line_words = all_words[j:j+max_words_per_line]
+                    # If we have too many words, create multiple subtitles
+                    if len(all_words) > thai_max_words_per_line * 2:
+                        # Calculate how many subtitles we need
+                        num_subtitles = (len(all_words) + thai_max_words_per_line - 1) // thai_max_words_per_line
+                        
+                        # Calculate duration for each subtitle
+                        total_duration = (subtitle.end - subtitle.start).total_seconds()
+                        duration_per_subtitle = total_duration / num_subtitles
+                        
+                        # Create multiple subtitles
+                        for j in range(num_subtitles):
+                            start_idx = j * thai_max_words_per_line
+                            end_idx = min((j + 1) * thai_max_words_per_line, len(all_words))
+                            
+                            # Get words for this subtitle
+                            subtitle_words = all_words[start_idx:end_idx]
+                            
                             # Join Thai words without spaces, but keep spaces for non-Thai
-                            line = ""
-                            for word in line_words:
+                            subtitle_text = ""
+                            for word in subtitle_words:
                                 if any(c in THAI_CHARS for c in word):
-                                    line += word
+                                    subtitle_text += word
                                 else:
-                                    if line and not line.endswith(" "):
-                                        line += " "
-                                    line += word
-                            lines.append(line)
-                        text = '\n'.join(lines)
+                                    if subtitle_text and not subtitle_text.endswith(" "):
+                                        subtitle_text += " "
+                                    subtitle_text += word
+                            
+                            # Calculate timing for this subtitle
+                            start_time = subtitle.start + timedelta(seconds=j * duration_per_subtitle)
+                            end_time = min(subtitle.start + timedelta(seconds=(j + 1) * duration_per_subtitle), subtitle.end)
+                            
+                            # Ensure we don't exceed max duration
+                            if end_time - start_time > max_subtitle_duration:
+                                end_time = start_time + max_subtitle_duration
+                            
+                            # Add gap if not the last subtitle
+                            if j < num_subtitles - 1:
+                                end_time = end_time - gap_duration
+                            
+                            # Create subtitle
+                            processed_subtitles.append(
+                                srt.Subtitle(
+                                    index=len(processed_subtitles) + 1,
+                                    start=start_time,
+                                    end=end_time,
+                                    content=subtitle_text
+                                )
+                            )
                     else:
-                        # Join all words appropriately
-                        text = ""
-                        for word in all_words:
-                            if any(c in THAI_CHARS for c in word):
-                                text += word
-                            else:
-                                if text and not text.endswith(" "):
-                                    text += " "
-                                text += word
+                        # Split into lines with max_words_per_line
+                        if len(all_words) > thai_max_words_per_line:
+                            lines = []
+                            for j in range(0, len(all_words), thai_max_words_per_line):
+                                line_words = all_words[j:j+thai_max_words_per_line]
+                                # Join Thai words without spaces, but keep spaces for non-Thai
+                                line = ""
+                                for word in line_words:
+                                    if any(c in THAI_CHARS for c in word):
+                                        line += word
+                                    else:
+                                        if line and not line.endswith(" "):
+                                            line += " "
+                                        line += word
+                                lines.append(line)
+                            text = '\n'.join(lines)
+                        else:
+                            # Join all words appropriately
+                            text = ""
+                            for word in all_words:
+                                if any(c in THAI_CHARS for c in word):
+                                    text += word
+                                else:
+                                    if text and not text.endswith(" "):
+                                        text += " "
+                                    text += word
+                        
+                        # Ensure subtitle duration is not too long
+                        end_time = subtitle.end
+                        if subtitle.end - subtitle.start > max_subtitle_duration:
+                            end_time = subtitle.start + max_subtitle_duration
+                        
+                        # Create a single subtitle
+                        processed_subtitles.append(
+                            srt.Subtitle(
+                                index=len(processed_subtitles) + 1,
+                                start=subtitle.start,
+                                end=end_time,
+                                content=text
+                            )
+                        )
                     
                     logger.info(f"Used PyThaiNLP for word segmentation: {len(all_words)} words")
+                    
+                    # Skip to the next subtitle since we've already processed this one
+                    continue
                 except ImportError:
                     # Fallback to character-based splitting
                     if len(text) > max_thai_chars_per_line:
@@ -1007,25 +1080,27 @@ def process_srt_file(subtitle_path, max_words_per_line=7, is_thai=False):
                         lines.append(line)
                     text = '\n'.join(lines)
             
-            # Add a gap between this subtitle and the next one
+            # Ensure subtitle duration is not too long
             end_time = subtitle.end
+            if subtitle.end - subtitle.start > max_subtitle_duration:
+                end_time = subtitle.start + max_subtitle_duration
             
-            # If not the last subtitle, adjust the end time to add a gap
+            # Add a gap between this subtitle and the next one
             if i < len(subtitles) - 1:
                 next_start = subtitles[i+1].start
                 if end_time + gap_duration < next_start:
                     # End this subtitle earlier to create a gap
-                    end_time = subtitle.end
+                    end_time = end_time
                 else:
                     # Adjust both this end time and next start time
-                    middle_point = subtitle.end + (next_start - subtitle.end) / 2
+                    middle_point = end_time + (next_start - end_time) / 2
                     end_time = middle_point - gap_duration / 2
                     # We'll adjust the next subtitle's start time when we process it
             
             # Create a new subtitle with the processed text
             processed_subtitles.append(
                 srt.Subtitle(
-                    index=i+1,
+                    index=len(processed_subtitles) + 1,
                     start=subtitle.start,
                     end=end_time,
                     content=text
