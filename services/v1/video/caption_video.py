@@ -668,16 +668,20 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, job_id=N
             
             limited_subtitle_path = limited_srt
         
-        # Set default margin based on language
-        default_margin_v = max(margin_v, 60 if is_thai else 40)  # Ensure minimum margin of 60 pixels for Thai text
+        # Set default margin based on language, but respect user-specified values
+        if margin_v is None or margin_v == 30:  # 30 is the default value
+            default_margin_v = 60 if is_thai else 40  # Default minimums
+        else:
+            # User explicitly set a margin value, respect it
+            default_margin_v = margin_v
         
-        # Set better default values for Thai subtitles
-        if is_thai:
+        # Set better default values for Thai subtitles (only if using defaults)
+        if is_thai and (margin_v is None or margin_v == 30):
             # Smaller font size for Thai by default
             if font_size == 24:  # If it's still the default value
                 font_size = 20
             
-            # Increase bottom margin for Thai
+            # Increase bottom margin for Thai (only if using default)
             if default_margin_v == 60:  # If it's the default Thai margin
                 default_margin_v = 80
         

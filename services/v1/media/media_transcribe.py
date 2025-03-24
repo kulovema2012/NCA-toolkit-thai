@@ -288,8 +288,16 @@ def align_script_with_segments(script_text, segments, output_srt_path, language=
         # Calculate average character duration
         chars_per_second = len(flat_script) / total_duration
         
+        # Adjust the character rate for Thai language to account for diacritics and tone marks
+        if language.lower() in ['th', 'thai']:
+            # Thai text appears to need a slower rate for better synchronization
+            chars_per_second = chars_per_second * 0.85  # Slow down the rate by 15%
+        
         # Assign timing to each script segment based on its length
         current_time = segments[0]['start']
+        
+        # Add a small delay at the beginning to ensure subtitles don't start too early
+        current_time += 0.2  # 200ms delay
         
         for i, segment in enumerate(script_segments):
             start_time = current_time
