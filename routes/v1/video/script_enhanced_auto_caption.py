@@ -118,7 +118,8 @@ def script_enhanced_auto_caption():
                 settings=styling_params,
                 output_path=output_path,
                 webhook_url=webhook_url,
-                job_id=job_id
+                job_id=job_id,
+                response_type=data.get("response_type", "direct")
             )
             return jsonify(result)
         except ValueError as e:
@@ -135,7 +136,7 @@ def script_enhanced_auto_caption():
         logger.error(traceback.format_exc())
         return jsonify({"status": "error", "message": f"Unexpected error: {str(e)}"}), 500
 
-def process_script_enhanced_auto_caption(video_url, script_text, language, settings, output_path=None, webhook_url=None, job_id=None):
+def process_script_enhanced_auto_caption(video_url, script_text, language, settings, output_path=None, webhook_url=None, job_id=None, response_type="direct"):
     """
     Process script-enhanced auto-captioning.
     
@@ -147,29 +148,23 @@ def process_script_enhanced_auto_caption(video_url, script_text, language, setti
         output_path (str, optional): Path to save the output video
         webhook_url (str, optional): URL to send webhook notifications
         job_id (str, optional): Job ID for tracking
+        response_type (str, optional): Type of response ("direct" or "cloud")
         
     Returns:
-        dict: Result dictionary with file URL and other metadata
+        dict: Response with captioned video URL and metadata
     """
-    # Create a list to track temporary files for cleanup
-    temp_files = []
+    start_time = time.time()
+    
+    # Create a temporary directory for processing
+    temp_dir = os.path.join(tempfile.gettempdir(), f"script_enhanced_auto_caption_{job_id}")
+    os.makedirs(temp_dir, exist_ok=True)
+    
+    # Create subdirectories
+    os.makedirs(os.path.join(temp_dir, "transcription"), exist_ok=True)
+    
+    logger.info(f"Job {job_id}: Created temporary directory: {temp_dir}")
     
     try:
-        # Start timing
-        start_time = time.time()
-        
-        # Generate job ID if not provided
-        if not job_id:
-            job_id = f"script_enhanced_auto_caption_{datetime.now().strftime('%Y%m%d%H%M%S')}"
-        
-        logger.info(f"Job {job_id}: Starting script-enhanced auto-caption processing")
-        logger.info(f"Job {job_id}: Video URL: {video_url}")
-        logger.info(f"Job {job_id}: Language: {language}")
-        
-        # Create temporary directory for processing
-        temp_dir = os.path.join(tempfile.gettempdir(), f"script_enhanced_auto_caption_{job_id}")
-        os.makedirs(temp_dir, exist_ok=True)
-        
         # Step 1: Download video if it's a URL
         local_video_path = None
         if video_url.startswith(('http://', 'https://')):
@@ -183,7 +178,6 @@ def process_script_enhanced_auto_caption(video_url, script_text, language, setti
                 # Verify the file was downloaded successfully
                 if not os.path.exists(local_video_path) or os.path.getsize(local_video_path) == 0:
                     raise ValueError(f"Failed to download video from {video_url}")
-                temp_files.append(local_video_path)
                 logger.info(f"Job {job_id}: Video downloaded to {local_video_path}")
             except Exception as e:
                 error_message = f"Error downloading video from {video_url}: {str(e)}"
@@ -202,7 +196,6 @@ def process_script_enhanced_auto_caption(video_url, script_text, language, setti
         if not output_path:
             output_filename = f"captioned_{os.path.basename(local_video_path)}"
             output_path = os.path.join(temp_dir, output_filename)
-            temp_files.append(output_path)
         
         # Step 2: Transcribe the video using OpenAI Whisper API
         logger.info(f"Job {job_id}: Transcribing video with OpenAI Whisper API")
@@ -216,8 +209,6 @@ def process_script_enhanced_auto_caption(video_url, script_text, language, setti
         srt_path = os.path.join(transcription_dir, f"transcription_{job_id}.srt")
         segments_path = os.path.join(transcription_dir, f"segments_{job_id}.json")
         enhanced_srt_path = os.path.join(transcription_dir, f"enhanced_{job_id}.srt")
-        
-        temp_files.extend([text_path, srt_path, segments_path, enhanced_srt_path, transcription_dir])
         
         # Call OpenAI Whisper API for transcription
         text_file, srt_file, segments_file, media_file_path = transcribe_with_openai(
@@ -238,9 +229,6 @@ def process_script_enhanced_auto_caption(video_url, script_text, language, setti
             local_video_path = media_file_path
             logger.info(f"Job {job_id}: Updated video path to {local_video_path}")
         
-        # Add these files to temp_files for cleanup
-        temp_files.extend([text_file, srt_file, segments_file])
-        
         if not os.path.exists(srt_path) or os.path.getsize(srt_path) == 0:
             error_message = "Transcription failed: Empty or missing SRT file"
             logger.error(f"Job {job_id}: {error_message}")
@@ -257,7 +245,7 @@ def process_script_enhanced_auto_caption(video_url, script_text, language, setti
         logger.info(f"Job {job_id}: Aligning script with transcription segments")
         from services.v1.media.script_enhanced_subtitles import enhance_subtitles_from_segments
         
-        # Use the enhanced_subtitles_from_segments function that uploads to cloud storage
+        # Use the enhance_subtitles_from_segments function that uploads to cloud storage
         alignment_result = enhance_subtitles_from_segments(
             script_text=script_text, 
             segments=segments, 
@@ -378,7 +366,7 @@ def process_script_enhanced_auto_caption(video_url, script_text, language, setti
         # Handle the caption_result which is a string path, not a dictionary
         if isinstance(caption_result, str) and os.path.exists(caption_result):
             # Upload the captioned video to cloud storage if requested
-            if 'response_type' in data and data['response_type'] == "cloud":
+            if response_type == "cloud":
                 try:
                     from services.cloud_storage import upload_to_cloud_storage
                     cloud_path = f"captioned_videos/{os.path.basename(caption_result)}"
@@ -459,12 +447,12 @@ def process_script_enhanced_auto_caption(video_url, script_text, language, setti
     finally:
         # Clean up temporary files
         try:
-            for temp_file in temp_files:
-                if os.path.exists(temp_file):
-                    if os.path.isdir(temp_file):
-                        shutil.rmtree(temp_file, ignore_errors=True)
-                    else:
-                        os.remove(temp_file)
+            for root, dirs, files in os.walk(temp_dir):
+                for file in files:
+                    os.remove(os.path.join(root, file))
+                for dir in dirs:
+                    shutil.rmtree(os.path.join(root, dir), ignore_errors=True)
+            shutil.rmtree(temp_dir, ignore_errors=True)
             logger.info(f"Job {job_id}: Cleaned up temporary files")
         except Exception as cleanup_error:
             logger.warning(f"Job {job_id}: Error during cleanup: {str(cleanup_error)}")
