@@ -291,7 +291,9 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, font_nam
             line_color, 
             outline_color, 
             align_param, 
-            margin_v
+            margin_v,
+            max_words_per_line,
+            max_width
         )
         
         # Use the ASS subtitle filter with the Thai-optimized ASS file
@@ -774,7 +776,7 @@ def convert_srt_to_ass(srt_path, ass_path, font_name, font_size, line_color, out
 
 def convert_srt_to_ass_for_thai(srt_path, ass_path, font_name, font_size, 
                               primary_color="white", outline_color="black", 
-                              alignment=2, margin_v=20):
+                              alignment=2, margin_v=20, max_words_per_line=7, max_width=None):
     """
     Convert SRT to ASS format with special handling for Thai text.
     
@@ -787,6 +789,8 @@ def convert_srt_to_ass_for_thai(srt_path, ass_path, font_name, font_size,
         outline_color: Outline color
         alignment: Text alignment (1=left, 2=center, 3=right)
         margin_v: Vertical margin
+        max_words_per_line: Maximum words per line
+        max_width: Maximum width of text
     """
     try:
         # Read the SRT file
@@ -817,15 +821,19 @@ def convert_srt_to_ass_for_thai(srt_path, ass_path, font_name, font_size,
             primary_color_hex = "&H00FFFFFF"  # White
             outline_color_hex = "&H000000FF"  # Black
             
+            # Adjust font size - for Thai text, we multiply by 2.5 to make it more visible
+            # This compensates for the small font size often specified in parameters
+            adjusted_font_size = int(font_size * 2.5)
+            
             # Write the style with explicit font settings - use center alignment (2)
             # Increase border and shadow for better visibility
-            f.write(f"Style: Default,{font_name},{font_size},{primary_color_hex},&H0000FFFF,{outline_color_hex},&H80000000,-1,0,0,0,100,100,0,0,1,3,2,2,20,20,{margin_v},1\n\n")
+            f.write(f"Style: Default,{font_name},{adjusted_font_size},{primary_color_hex},&H0000FFFF,{outline_color_hex},&H80000000,-1,0,0,0,100,100,0,0,1,3,2,2,20,20,{margin_v},1\n\n")
             
             # Write events
             f.write("[Events]\n")
             f.write("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
             
-            # Process subtitles to prevent overlap
+            # Process subtitles to prevent overlap and handle word count
             processed_subs = []
             for i, sub in enumerate(subs):
                 # Add a small gap between subtitles to prevent overlap
@@ -863,7 +871,7 @@ def convert_srt_to_ass_for_thai(srt_path, ass_path, font_name, font_size,
                 
                 # Add explicit font, position, and formatting tags
                 # Use centered text with proper positioning
-                formatted_text = "{\\fnSarabun\\fs" + str(font_size) + "\\bord3\\shad2\\an2}" + text
+                formatted_text = "{\\fnSarabun\\fs" + str(adjusted_font_size) + "\\bord3\\shad2\\an2}" + text
                 
                 # Write the event line with center alignment
                 f.write(f"Dialogue: 0,{start_str},{end_str},Default,,0,0,0,,{formatted_text}\n")
