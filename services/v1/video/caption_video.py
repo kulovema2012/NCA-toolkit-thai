@@ -131,7 +131,7 @@ def cache_result(func):
                 logger.info(f"Cached result for {os.path.basename(video_path)} with {os.path.basename(subtitle_path)}")
         
         return result
-    
+
     return wrapper
 
 @cache_result
@@ -804,6 +804,8 @@ def convert_srt_to_ass_for_thai(srt_path, ass_path, font_name, font_size,
             f.write("ScriptType: v4.00+\n")
             f.write("WrapStyle: 0\n")
             f.write("ScaledBorderAndShadow: yes\n")
+            f.write("PlayResX: 1920\n")  # Standard HD width
+            f.write("PlayResY: 1080\n")  # Standard HD height
             f.write("YCbCr Matrix: None\n\n")
             
             # Write styles
@@ -815,15 +817,30 @@ def convert_srt_to_ass_for_thai(srt_path, ass_path, font_name, font_size,
             primary_color_hex = "&H00FFFFFF"  # White
             outline_color_hex = "&H000000FF"  # Black
             
-            # Write the style with explicit font settings
-            f.write(f"Style: Default,{font_name},{font_size},{primary_color_hex},&H0000FFFF,{outline_color_hex},&H80000000,-1,0,0,0,100,100,0,0,1,2,1,{alignment},10,10,{margin_v},1\n\n")
+            # Write the style with explicit font settings - use center alignment (2)
+            # Increase border and shadow for better visibility
+            f.write(f"Style: Default,{font_name},{font_size},{primary_color_hex},&H0000FFFF,{outline_color_hex},&H80000000,-1,0,0,0,100,100,0,0,1,3,2,2,20,20,{margin_v},1\n\n")
             
             # Write events
             f.write("[Events]\n")
             f.write("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
             
+            # Process subtitles to prevent overlap
+            processed_subs = []
+            for i, sub in enumerate(subs):
+                # Add a small gap between subtitles to prevent overlap
+                if i > 0 and sub.start < processed_subs[i-1].end + timedelta(milliseconds=200):
+                    sub.start = processed_subs[i-1].end + timedelta(milliseconds=200)
+                
+                # Ensure minimum duration for readability
+                min_duration = timedelta(seconds=1)
+                if sub.end - sub.start < min_duration:
+                    sub.end = sub.start + min_duration
+                
+                processed_subs.append(sub)
+            
             # Write each subtitle as an event
-            for sub in subs:
+            for sub in processed_subs:
                 start_time = sub.start.total_seconds()
                 end_time = sub.end.total_seconds()
                 
@@ -844,10 +861,11 @@ def convert_srt_to_ass_for_thai(srt_path, ass_path, font_name, font_size,
                 # Clean the text and add ASS formatting tags for better Thai rendering
                 text = sub.content.replace('\n', '\\N')
                 
-                # Add explicit font and formatting tags
-                formatted_text = "{\\fnSarabun\\fs" + str(font_size) + "\\bord2\\shad1}" + text
+                # Add explicit font, position, and formatting tags
+                # Use centered text with proper positioning
+                formatted_text = "{\\fnSarabun\\fs" + str(font_size) + "\\bord3\\shad2\\an2}" + text
                 
-                # Write the event line
+                # Write the event line with center alignment
                 f.write(f"Dialogue: 0,{start_str},{end_str},Default,,0,0,0,,{formatted_text}\n")
         
         logger.info(f"Successfully converted SRT to ASS with Thai support: {ass_path}")
