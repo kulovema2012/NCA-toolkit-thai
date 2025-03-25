@@ -185,6 +185,20 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, font_nam
     except Exception as e:
         logger.warning(f"Error detecting subtitle language: {str(e)}")
     
+    # Check if the subtitle file contains Thai text
+    try:
+        with open(subtitle_path, 'r', encoding='utf-8-sig') as f:
+            content = f.read()
+            # Check for Thai characters
+            if re.search(r'[ก-๙]', content):
+                is_thai = True
+                # Use a Thai font if Thai text is detected and no specific font is provided
+                if font_name == "Arial":
+                    font_name = "Sarabun"  # Default Thai font
+                logger.info(f"Thai text detected in subtitles, using font: {font_name}")
+    except Exception as e:
+        logger.warning(f"Error checking for Thai text: {str(e)}")
+    
     # Process the SRT file to improve formatting and prevent overlapping
     processed_subtitle_path = process_srt_file(subtitle_path, max_words_per_line, is_thai)
     
@@ -209,12 +223,18 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, font_nam
     if is_vertical:
         # For vertical videos (like 9:16), scale font size down
         adjusted_font_size = int(font_size * (video_width / 1080))
+        # Increase font size for Thai text to improve readability
+        if is_thai:
+            adjusted_font_size = int(adjusted_font_size * 1.2)  # 20% larger for Thai
         # Limit maximum width for vertical videos to prevent overflow
         if not max_width:
             max_width = int(video_width * 0.8)  # 80% of video width
     else:
         # For horizontal videos, use standard scaling
         adjusted_font_size = int(font_size * (video_width / 1920))
+        # Increase font size for Thai text to improve readability
+        if is_thai:
+            adjusted_font_size = int(adjusted_font_size * 1.2)  # 20% larger for Thai
         if not max_width:
             max_width = int(video_width * 0.9)  # 90% of video width
     
@@ -262,12 +282,12 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, font_nam
     
     # Set up subtitle filter based on style
     if subtitle_style == "classic":
-        # Classic style with simple text
-        subtitle_filter = f"subtitles='{processed_subtitle_path}':force_style='FontName={font_name},FontSize={adjusted_font_size},PrimaryColour={line_color},OutlineColour={outline_color},BorderStyle=1,Outline=1,Shadow=0,MarginV={margin_v},Alignment={align_param}{font_formatting}'"
+        # Classic style with simple text - ensure text is visible with proper formatting
+        subtitle_filter = f"subtitles='{processed_subtitle_path}':force_style='FontName={font_name},FontSize={adjusted_font_size},PrimaryColour={line_color},OutlineColour={outline_color},BorderStyle=1,Outline=1,Shadow=1,MarginV={margin_v},Alignment={align_param}{font_formatting}'"
     
     elif subtitle_style == "modern":
-        # Modern style with background box
-        subtitle_filter = f"subtitles='{processed_subtitle_path}':force_style='FontName={font_name},FontSize={adjusted_font_size},PrimaryColour={line_color},OutlineColour={outline_color},BackColour=&H80000000,BorderStyle=3,Outline=1,Shadow=0,MarginV={margin_v},Alignment={align_param}{font_formatting}'"
+        # Modern style with background box - ensure text is visible with proper background
+        subtitle_filter = f"subtitles='{processed_subtitle_path}':force_style='FontName={font_name},FontSize={adjusted_font_size},PrimaryColour={line_color},OutlineColour={outline_color},BackColour=&H80000000,BorderStyle=3,Outline=1,Shadow=1,MarginV={margin_v},Alignment={align_param}{font_formatting}'"
     
     elif subtitle_style in ["highlight", "karaoke", "word_by_word"]:
         # For styles that need word-level processing, we need to use ASS subtitles
@@ -279,12 +299,12 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, font_nam
         subtitle_filter = f"ass='{ass_subtitle_path}'"
     
     elif subtitle_style == "underline":
-        # Underlined text
-        subtitle_filter = f"subtitles='{processed_subtitle_path}':force_style='FontName={font_name},FontSize={adjusted_font_size},PrimaryColour={line_color},OutlineColour={outline_color},BorderStyle=1,Outline=1,Shadow=0,MarginV={margin_v},Alignment={align_param},Underline=1{font_formatting}'"
+        # Underlined text - ensure text is visible
+        subtitle_filter = f"subtitles='{processed_subtitle_path}':force_style='FontName={font_name},FontSize={adjusted_font_size},PrimaryColour={line_color},OutlineColour={outline_color},BorderStyle=1,Outline=1,Shadow=1,MarginV={margin_v},Alignment={align_param},Underline=1{font_formatting}'"
     
     else:
-        # Default to classic if style not recognized
-        subtitle_filter = f"subtitles='{processed_subtitle_path}':force_style='FontName={font_name},FontSize={adjusted_font_size},PrimaryColour={line_color},OutlineColour={outline_color},BorderStyle=1,Outline=1,Shadow=0,MarginV={margin_v},Alignment={align_param}{font_formatting}'"
+        # Default to classic if style not recognized - ensure text is visible
+        subtitle_filter = f"subtitles='{processed_subtitle_path}':force_style='FontName={font_name},FontSize={adjusted_font_size},PrimaryColour={line_color},OutlineColour={outline_color},BorderStyle=1,Outline=1,Shadow=1,MarginV={margin_v},Alignment={align_param}{font_formatting}'"
     
     # Add voice-over delay of 0.2 seconds for Thai videos to ensure synchronization
     if is_thai:

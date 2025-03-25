@@ -72,6 +72,7 @@ def script_enhanced_auto_caption():
         language = data.get("language", "en")  # Default to English
         output_path = data.get("output_path", "")
         webhook_url = data.get("webhook_url", "")
+        include_srt = data.get("include_srt", False)
         
         # Always use cloud storage for responses
         response_type = "cloud"
@@ -122,7 +123,8 @@ def script_enhanced_auto_caption():
                 output_path=output_path,
                 webhook_url=webhook_url,
                 job_id=job_id,
-                response_type=response_type
+                response_type=response_type,
+                include_srt=include_srt
             )
             return jsonify(result)
         except ValueError as e:
@@ -139,7 +141,7 @@ def script_enhanced_auto_caption():
         logger.error(traceback.format_exc())
         return jsonify({"status": "error", "message": f"Unexpected error: {str(e)}"}), 500
 
-def process_script_enhanced_auto_caption(video_url, script_text, language, settings, output_path=None, webhook_url=None, job_id=None, response_type="cloud"):
+def process_script_enhanced_auto_caption(video_url, script_text, language, settings, output_path=None, webhook_url=None, job_id=None, response_type="cloud", include_srt=False):
     """
     Process script-enhanced auto-captioning.
     
@@ -152,6 +154,7 @@ def process_script_enhanced_auto_caption(video_url, script_text, language, setti
         webhook_url (str, optional): URL to send webhook notifications
         job_id (str, optional): Job ID for tracking
         response_type (str, optional): Type of response ("direct" or "cloud")
+        include_srt (bool, optional): Whether to include SRT URL in the response
         
     Returns:
         dict: Response with captioned video URL and metadata
@@ -406,8 +409,8 @@ def process_script_enhanced_auto_caption(video_url, script_text, language, setti
             # Handle if caption_result is already a dictionary with file_url
             response["response"][0]["file_url"] = caption_result["file_url"]
         
-        # Add SRT URL to the response if available
-        if srt_cloud_url:
+        # Add SRT URL to the response only if explicitly requested
+        if srt_cloud_url and include_srt:
             response["srt_url"] = srt_cloud_url
         
         # Add optional metadata if available
