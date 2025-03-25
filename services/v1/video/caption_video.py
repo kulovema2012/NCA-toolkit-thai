@@ -4,7 +4,6 @@ import json
 import tempfile
 import subprocess
 import logging
-from typing import Dict, Any, List, Optional, Union
 import re
 import uuid
 import json
@@ -14,7 +13,7 @@ from datetime import datetime, timedelta
 import functools
 import random
 from pathlib import Path
-import srt
+import srt  # For parsing SRT files
 from datetime import timedelta
 import unicodedata
 
@@ -282,29 +281,78 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, font_nam
     
     # Set up subtitle filter based on style
     if subtitle_style == "classic":
-        # Classic style with simple text - ensure text is visible with proper formatting
-        subtitle_filter = f"subtitles='{processed_subtitle_path}':force_style='FontName={font_name},FontSize={adjusted_font_size},PrimaryColour={line_color},OutlineColour={outline_color},BorderStyle=1,Outline=1,Shadow=1,MarginV={margin_v},Alignment={align_param}{font_formatting}'"
+        # For Thai text, use a different approach to ensure proper rendering
+        if is_thai:
+            # Use drawtext filter instead of subtitles filter for Thai text
+            # First convert SRT to a text file with timecodes
+            text_file_path = processed_subtitle_path.replace('.srt', '.txt')
+            convert_srt_to_timed_text(processed_subtitle_path, text_file_path)
+            
+            # Use drawtext filter with the Thai font
+            subtitle_filter = f"drawtext=fontfile=/usr/share/fonts/truetype/thai/{font_name}.ttf:fontsize={adjusted_font_size}:fontcolor={line_color}:bordercolor={outline_color}:borderw=2:textfile='{text_file_path}':reload=1:y=h-{margin_v}:x=(w-text_w)/2"
+        else:
+            # Classic style with simple text - ensure text is visible with proper formatting
+            subtitle_filter = f"subtitles='{processed_subtitle_path}':force_style='FontName={font_name},FontSize={adjusted_font_size},PrimaryColour={line_color},OutlineColour={outline_color},BorderStyle=1,Outline=1,Shadow=1,MarginV={margin_v},Alignment={align_param}{font_formatting}'"
     
     elif subtitle_style == "modern":
-        # Modern style with background box - ensure text is visible with proper background
-        subtitle_filter = f"subtitles='{processed_subtitle_path}':force_style='FontName={font_name},FontSize={adjusted_font_size},PrimaryColour={line_color},OutlineColour={outline_color},BackColour=&H80000000,BorderStyle=3,Outline=1,Shadow=1,MarginV={margin_v},Alignment={align_param}{font_formatting}'"
+        # For Thai text, use a different approach to ensure proper rendering
+        if is_thai:
+            # Use drawtext filter instead of subtitles filter for Thai text
+            # First convert SRT to a text file with timecodes
+            text_file_path = processed_subtitle_path.replace('.srt', '.txt')
+            convert_srt_to_timed_text(processed_subtitle_path, text_file_path)
+            
+            # Use drawtext filter with the Thai font and a background box
+            subtitle_filter = f"drawtext=fontfile=/usr/share/fonts/truetype/thai/{font_name}.ttf:fontsize={adjusted_font_size}:fontcolor={line_color}:bordercolor={outline_color}:borderw=2:box=1:boxcolor=black@0.5:textfile='{text_file_path}':reload=1:y=h-{margin_v}:x=(w-text_w)/2"
+        else:
+            # Modern style with background box - ensure text is visible with proper background
+            subtitle_filter = f"subtitles='{processed_subtitle_path}':force_style='FontName={font_name},FontSize={adjusted_font_size},PrimaryColour={line_color},OutlineColour={outline_color},BackColour=&H80000000,BorderStyle=3,Outline=1,Shadow=1,MarginV={margin_v},Alignment={align_param}{font_formatting}'"
     
     elif subtitle_style in ["highlight", "karaoke", "word_by_word"]:
-        # For styles that need word-level processing, we need to use ASS subtitles
-        # Convert SRT to ASS first
-        ass_subtitle_path = processed_subtitle_path.replace('.srt', '.ass')
-        convert_srt_to_ass(processed_subtitle_path, ass_subtitle_path, font_name, adjusted_font_size, 
-                         line_color, outline_color, word_color, align_param, margin_v, 
-                         subtitle_style, max_width, all_caps, font_formatting)
-        subtitle_filter = f"ass='{ass_subtitle_path}'"
+        # For Thai text with highlight styles, use a different approach
+        if is_thai:
+            # Use drawtext filter instead of subtitles filter for Thai text
+            text_file_path = processed_subtitle_path.replace('.srt', '.txt')
+            convert_srt_to_timed_text(processed_subtitle_path, text_file_path)
+            
+            # For highlight style, use a different color for each word
+            if subtitle_style == "highlight":
+                subtitle_filter = f"drawtext=fontfile=/usr/share/fonts/truetype/thai/{font_name}.ttf:fontsize={adjusted_font_size}:fontcolor={word_color}:bordercolor={outline_color}:borderw=2:textfile='{text_file_path}':reload=1:y=h-{margin_v}:x=(w-text_w)/2"
+            else:
+                # For karaoke or word_by_word, use the same approach as classic for now
+                subtitle_filter = f"drawtext=fontfile=/usr/share/fonts/truetype/thai/{font_name}.ttf:fontsize={adjusted_font_size}:fontcolor={line_color}:bordercolor={outline_color}:borderw=2:textfile='{text_file_path}':reload=1:y=h-{margin_v}:x=(w-text_w)/2"
+        else:
+            # For non-Thai text, use the original ASS subtitle approach
+            # Convert SRT to ASS first
+            ass_subtitle_path = processed_subtitle_path.replace('.srt', '.ass')
+            convert_srt_to_ass(processed_subtitle_path, ass_subtitle_path, font_name, adjusted_font_size, 
+                             line_color, outline_color, word_color, align_param, margin_v, 
+                             subtitle_style, max_width, all_caps, font_formatting)
+            subtitle_filter = f"ass='{ass_subtitle_path}'"
     
     elif subtitle_style == "underline":
-        # Underlined text - ensure text is visible
-        subtitle_filter = f"subtitles='{processed_subtitle_path}':force_style='FontName={font_name},FontSize={adjusted_font_size},PrimaryColour={line_color},OutlineColour={outline_color},BorderStyle=1,Outline=1,Shadow=1,MarginV={margin_v},Alignment={align_param},Underline=1{font_formatting}'"
+        # For Thai text with underline style, use drawtext with underline
+        if is_thai:
+            text_file_path = processed_subtitle_path.replace('.srt', '.txt')
+            convert_srt_to_timed_text(processed_subtitle_path, text_file_path)
+            
+            # Use drawtext filter with underline
+            subtitle_filter = f"drawtext=fontfile=/usr/share/fonts/truetype/thai/{font_name}.ttf:fontsize={adjusted_font_size}:fontcolor={line_color}:bordercolor={outline_color}:borderw=2:underline=1:textfile='{text_file_path}':reload=1:y=h-{margin_v}:x=(w-text_w)/2"
+        else:
+            # Underlined text - ensure text is visible
+            subtitle_filter = f"subtitles='{processed_subtitle_path}':force_style='FontName={font_name},FontSize={adjusted_font_size},PrimaryColour={line_color},OutlineColour={outline_color},BorderStyle=1,Outline=1,Shadow=1,MarginV={margin_v},Alignment={align_param},Underline=1{font_formatting}'"
     
     else:
-        # Default to classic if style not recognized - ensure text is visible
-        subtitle_filter = f"subtitles='{processed_subtitle_path}':force_style='FontName={font_name},FontSize={adjusted_font_size},PrimaryColour={line_color},OutlineColour={outline_color},BorderStyle=1,Outline=1,Shadow=1,MarginV={margin_v},Alignment={align_param}{font_formatting}'"
+        # Default to classic if style not recognized
+        if is_thai:
+            # Use drawtext filter for Thai text
+            text_file_path = processed_subtitle_path.replace('.srt', '.txt')
+            convert_srt_to_timed_text(processed_subtitle_path, text_file_path)
+            
+            subtitle_filter = f"drawtext=fontfile=/usr/share/fonts/truetype/thai/{font_name}.ttf:fontsize={adjusted_font_size}:fontcolor={line_color}:bordercolor={outline_color}:borderw=2:textfile='{text_file_path}':reload=1:y=h-{margin_v}:x=(w-text_w)/2"
+        else:
+            # Default to classic if style not recognized - ensure text is visible
+            subtitle_filter = f"subtitles='{processed_subtitle_path}':force_style='FontName={font_name},FontSize={adjusted_font_size},PrimaryColour={line_color},OutlineColour={outline_color},BorderStyle=1,Outline=1,Shadow=1,MarginV={margin_v},Alignment={align_param}{font_formatting}'"
     
     # Add voice-over delay of 0.2 seconds for Thai videos to ensure synchronization
     if is_thai:
@@ -755,6 +803,22 @@ def convert_srt_to_ass(srt_path, ass_path, font_name, font_size, line_color, out
         
     except Exception as e:
         logger.error(f"Error converting SRT to ASS: {str(e)}")
+
+def convert_srt_to_timed_text(srt_path, text_path):
+    try:
+        with open(srt_path, 'r', encoding='utf-8-sig') as f:
+            content = f.read()
+        subs = list(srt.parse(content))
+        
+        with open(text_path, 'w', encoding='utf-8') as f:
+            for sub in subs:
+                start_time = sub.start.total_seconds()
+                end_time = sub.end.total_seconds()
+                text = sub.content
+                f.write(f"{start_time}:{end_time}:{text}\n")
+        
+    except Exception as e:
+        logger.error(f"Error converting SRT to timed text: {str(e)}")
 
 def process_captioning_v1(video_url, captions, settings=None, job_id=None, webhook_url=None):
     """
