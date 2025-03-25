@@ -368,19 +368,38 @@ def process_script_enhanced_auto_caption(video_url, script_text, language, setti
             "message": "success",
             "response": [
                 {
-                    "file_url": caption_result.get("file_url", "")
+                    "file_url": ""
                 }
             ],
             "run_time": round(run_time, 3),
             "total_time": round(total_time, 3)
         }
         
+        # Handle the caption_result which is a string path, not a dictionary
+        if isinstance(caption_result, str) and os.path.exists(caption_result):
+            # Upload the captioned video to cloud storage if requested
+            if 'response_type' in data and data['response_type'] == "cloud":
+                try:
+                    from services.cloud_storage import upload_to_cloud_storage
+                    cloud_path = f"captioned_videos/{os.path.basename(caption_result)}"
+                    cloud_url = upload_to_cloud_storage(caption_result, cloud_path)
+                    response["response"][0]["file_url"] = cloud_url
+                except Exception as e:
+                    logger.error(f"Job {job_id}: Failed to upload captioned video to cloud storage: {str(e)}")
+                    response["response"][0]["file_url"] = f"file://{caption_result}"
+            else:
+                # Use local file path
+                response["response"][0]["file_url"] = f"file://{caption_result}"
+        elif isinstance(caption_result, dict) and "file_url" in caption_result:
+            # Handle if caption_result is already a dictionary with file_url
+            response["response"][0]["file_url"] = caption_result["file_url"]
+        
         # Add SRT URL to the response if available
         if srt_cloud_url:
             response["srt_url"] = srt_cloud_url
         
         # Add optional metadata if available
-        if "metadata" in caption_result:
+        if "metadata" in locals() and 'caption_result' in locals() and isinstance(caption_result, dict) and "metadata" in caption_result:
             metadata = caption_result["metadata"]
             if isinstance(metadata, dict):
                 # Extract specific metadata fields to match original format

@@ -16,6 +16,7 @@ import random
 from pathlib import Path
 import srt
 from datetime import timedelta
+import unicodedata
 
 # Configure logging
 logger = logging.getLogger(__name__)
