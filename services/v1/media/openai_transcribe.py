@@ -4,6 +4,7 @@ import requests
 import logging
 from datetime import timedelta
 import srt
+from urllib.parse import urlparse
 from services.file_management import download_file
 
 # Set up logging
@@ -70,7 +71,20 @@ def transcribe_with_openai(media_url, language="th", response_format="verbose_js
     # Handle both URLs and local file paths
     if media_url.startswith(('http://', 'https://')):
         # It's a URL, download the file
-        input_filename = download_file(media_url, os.path.join(STORAGE_PATH, 'input_media'))
+        # Extract the file extension from the URL
+        parsed_url = urlparse(media_url)
+        file_path = parsed_url.path
+        file_extension = os.path.splitext(file_path)[1]
+        
+        # If no extension or unrecognized, default to .mp4
+        if not file_extension or file_extension.lower() not in ['.flac', '.m4a', '.mp3', '.mp4', '.mpeg', '.mpga', '.oga', '.ogg', '.wav', '.webm']:
+            file_extension = '.mp4'
+            
+        # Create a filename with the proper extension
+        input_filename = os.path.join(STORAGE_PATH, f'input_media{file_extension}')
+        
+        # Download the file
+        input_filename = download_file(media_url, input_filename)
         logger.info(f"Downloaded media to local file: {input_filename}")
     else:
         # It's already a local file path
