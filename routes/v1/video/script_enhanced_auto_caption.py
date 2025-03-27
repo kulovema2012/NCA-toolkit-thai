@@ -49,7 +49,14 @@ def script_enhanced_auto_caption():
         "bold": "Whether to use bold text",
         "italic": "Whether to use italic text",
         "underline": "Whether to use underlined text",
-        "strikeout": "Whether to use strikeout text"
+        "strikeout": "Whether to use strikeout text",
+        "shadow": "Whether to use shadow",
+        "outline": "Whether to use outline",
+        "back_color": "Background color for subtitles",
+        "margin_l": "Left margin for subtitles",
+        "margin_r": "Right margin for subtitles",
+        "encoding": "Encoding for subtitles",
+        "min_start_time": "Minimum start time for subtitles"
     }
     """
     try:
@@ -73,6 +80,7 @@ def script_enhanced_auto_caption():
         output_path = data.get("output_path", "")
         webhook_url = data.get("webhook_url", "")
         include_srt = data.get("include_srt", False)
+        min_start_time = data.get("min_start_time", 0.0)  # Default to 0.0 seconds
         
         # Always use cloud storage for responses
         response_type = "cloud"
@@ -100,7 +108,8 @@ def script_enhanced_auto_caption():
             "font_name", "font_size", "position", "subtitle_style", "margin_v", 
             "max_width", "line_color", "word_color", "outline_color", "all_caps",
             "max_words_per_line", "x", "y", "alignment", "bold", "italic", 
-            "underline", "strikeout"
+            "underline", "strikeout", "shadow", "outline", "back_color", 
+            "margin_l", "margin_r", "encoding"
         ]
         
         for param in optional_params:
@@ -124,7 +133,8 @@ def script_enhanced_auto_caption():
                 webhook_url=webhook_url,
                 job_id=job_id,
                 response_type=response_type,
-                include_srt=include_srt
+                include_srt=include_srt,
+                min_start_time=min_start_time
             )
             return jsonify(result)
         except ValueError as e:
@@ -141,7 +151,7 @@ def script_enhanced_auto_caption():
         logger.error(traceback.format_exc())
         return jsonify({"status": "error", "message": f"Unexpected error: {str(e)}"}), 500
 
-def process_script_enhanced_auto_caption(video_url, script_text, language, settings, output_path=None, webhook_url=None, job_id=None, response_type="cloud", include_srt=False):
+def process_script_enhanced_auto_caption(video_url, script_text, language, settings, output_path=None, webhook_url=None, job_id=None, response_type="cloud", include_srt=False, min_start_time=0.0):
     """
     Process script-enhanced auto-captioning.
     
@@ -155,6 +165,7 @@ def process_script_enhanced_auto_caption(video_url, script_text, language, setti
         job_id (str, optional): Job ID for tracking
         response_type (str, optional): Type of response ("direct" or "cloud")
         include_srt (bool, optional): Whether to include SRT URL in the response
+        min_start_time (float, optional): Minimum start time for subtitles
         
     Returns:
         dict: Response with captioned video URL and metadata
@@ -256,7 +267,8 @@ def process_script_enhanced_auto_caption(video_url, script_text, language, setti
             script_text=script_text, 
             segments=segments, 
             output_srt_path=enhanced_srt_path, 
-            upload_to_cloud=True
+            upload_to_cloud=True,
+            min_start_time=min_start_time  # Pass the minimum start time parameter
         )
         
         # Check if the result is a dictionary with cloud_url
@@ -325,7 +337,13 @@ def process_script_enhanced_auto_caption(video_url, script_text, language, setti
             "bold": settings.get("bold", False),
             "italic": settings.get("italic", False),
             "underline": settings.get("underline", False),
-            "strikeout": settings.get("strikeout", False)
+            "strikeout": settings.get("strikeout", False),
+            "shadow": settings.get("shadow", False),
+            "outline": settings.get("outline", False),
+            "back_color": settings.get("back_color"),
+            "margin_l": settings.get("margin_l"),
+            "margin_r": settings.get("margin_r"),
+            "encoding": settings.get("encoding")
         }
         
         # Filter out None values

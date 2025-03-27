@@ -176,11 +176,11 @@ def align_thai_text(script_text: str, subtitles: List[srt.Subtitle]) -> List[srt
             expanded_end = match_pos + match.size
             
             # Expand backwards
-            while expanded_start > 0 and script_text[expanded_start-1] not in ['.', '!', '?', '\n', '।', '॥', '।', '॥', '।', '॥', '。', '？', '！', '।', '॥']:
+            while expanded_start > 0 and script_text[expanded_start-1] not in ['.', '!', '?', '\n', '।', '॥', '।', '॥', '।', '॥', '।', '॥', '。', '？', '！', '।', '॥']:
                 expanded_start -= 1
                 
             # Expand forwards
-            while expanded_end < len(script_text) and script_text[expanded_end] not in ['.', '!', '?', '\n', '।', '॥', '।', '॥', '।', '॥', '।', '॥', '。', '？', '！', '।', '॥']:
+            while expanded_end < len(script_text) and script_text[expanded_end] not in ['.', '!', '?', '\n', '।', '॥', '।', '॥', '।', '॥', '।', '॥', '।', '॥', '。', '？', '！', '।', '॥']:
                 expanded_end += 1
             
             best_match = script_text[expanded_start:expanded_end]
@@ -275,7 +275,7 @@ def align_standard_text(script_text: str, subtitles: List[srt.Subtitle]) -> List
     
     return aligned_subtitles
 
-def enhance_subtitles_from_segments(script_text: str, segments: List[Dict], output_srt_path: str, upload_to_cloud: bool = True) -> Union[str, Dict[str, str]]:
+def enhance_subtitles_from_segments(script_text: str, segments: List[Dict], output_srt_path: str, upload_to_cloud: bool = True, min_start_time: float = 0.0) -> Union[str, Dict[str, str]]:
     """
     Create enhanced subtitles from transcription segments and a script.
     
@@ -284,6 +284,7 @@ def enhance_subtitles_from_segments(script_text: str, segments: List[Dict], outp
         segments: List of transcription segments from Whisper
         output_srt_path: Path to save the enhanced SRT file
         upload_to_cloud: Whether to upload the SRT file to cloud storage (default: True)
+        min_start_time: Minimum start time for the first subtitle (in seconds)
         
     Returns:
         If upload_to_cloud is True: Dict with local_path and cloud_url of the enhanced SRT file
@@ -294,7 +295,9 @@ def enhance_subtitles_from_segments(script_text: str, segments: List[Dict], outp
     # Convert segments to SRT format
     subtitles = []
     for i, segment in enumerate(segments):
-        start_time = timedelta(seconds=segment['start'])
+        # Apply minimum start time to ensure subtitles don't appear before voice-over
+        start_seconds = max(segment['start'], min_start_time if i == 0 else segment['start'])
+        start_time = timedelta(seconds=start_seconds)
         end_time = timedelta(seconds=segment['end'])
         
         subtitles.append(
