@@ -5,6 +5,7 @@ import logging
 import uuid
 from services.v1.media.openai_transcribe import transcribe_with_openai
 from services.v1.video.caption_video import add_subtitles_to_video
+from services.cloud_storage import upload_to_cloud_storage
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -96,10 +97,18 @@ def openai_auto_caption():
         
         # Step 2: Add subtitles to video
         logger.info(f"Adding subtitles to video with font: {font_name}, position: {position}, style: {style}")
+        
+        # Define local output path if not provided
+        if not output_path:
+            output_filename = f"subtitled_{os.path.basename(media_file_path)}"
+            local_output_path = os.path.join(STORAGE_PATH, output_filename)
+        else:
+            local_output_path = output_path
+        
         caption_result = add_subtitles_to_video(
             video_path=media_file_path,  # Use the media file path returned from transcription
             subtitle_path=srt_path,
-            output_path=output_path,
+            output_path=local_output_path,
             job_id=job_id,
             font_name=font_name,
             font_size=font_size,
@@ -115,23 +124,61 @@ def openai_auto_caption():
                 "message": "Failed to add subtitles to video"
             }), 500
         
-        # Prepare the response
-        response = {
-            "status": "success",
-            "file_url": caption_result['file_url'] if isinstance(caption_result, dict) and 'file_url' in caption_result else caption_result,
-            "transcription": {
-                "text": open(text_path, 'r', encoding='utf-8').read() if os.path.exists(text_path) else "",
-                "segments": json.load(open(segments_path, 'r', encoding='utf-8')) if os.path.exists(segments_path) else [],
-                "language": language
+        # Step 3: Upload the subtitled video to Google Cloud Storage
+        try:
+            # Generate a destination path with a unique name
+            file_uuid = str(uuid.uuid4())
+            output_filename = os.path.basename(local_output_path)
+            cloud_destination_path = f"videos/captioned/{file_uuid}_{output_filename}"
+            
+            # Upload the file to cloud storage
+            logger.info(f"Uploading subtitled video to cloud storage: {cloud_destination_path}")
+            cloud_url = upload_to_cloud_storage(local_output_path, cloud_destination_path)
+            logger.info(f"Subtitled video uploaded to cloud storage: {cloud_url}")
+            
+            # Upload the SRT file to cloud storage as well
+            srt_filename = os.path.basename(srt_path)
+            srt_cloud_path = f"subtitles/{file_uuid}_{srt_filename}"
+            srt_cloud_url = upload_to_cloud_storage(srt_path, srt_cloud_path)
+            logger.info(f"SRT file uploaded to cloud storage: {srt_cloud_url}")
+            
+            # Prepare the response with cloud URL
+            response = {
+                "status": "success",
+                "file_url": cloud_url,
+                "srt_url": srt_cloud_url,
+                "transcription": {
+                    "text": open(text_path, 'r', encoding='utf-8').read() if os.path.exists(text_path) else "",
+                    "segments": json.load(open(segments_path, 'r', encoding='utf-8')) if os.path.exists(segments_path) else [],
+                    "language": language
+                }
             }
-        }
+            
+        except Exception as e:
+            logger.error(f"Error uploading to cloud storage: {str(e)}")
+            # Fallback to local path if cloud upload fails
+            response = {
+                "status": "success",
+                "file_url": local_output_path,  # Return local path as fallback
+                "transcription": {
+                    "text": open(text_path, 'r', encoding='utf-8').read() if os.path.exists(text_path) else "",
+                    "segments": json.load(open(segments_path, 'r', encoding='utf-8')) if os.path.exists(segments_path) else [],
+                    "language": language
+                },
+                "warning": "Failed to upload to cloud storage, returning local file path"
+            }
         
         # Clean up temporary files
         try:
             for temp_file in [text_path, srt_path, segments_path, media_file_path]:
-                if temp_file and os.path.exists(temp_file):
+                if temp_file and os.path.exists(temp_file) and temp_file != local_output_path:
                     os.remove(temp_file)
                     logger.info(f"Removed temporary file: {temp_file}")
+            
+            # Only remove the output file if it was successfully uploaded to cloud storage
+            if 'cloud_url' in locals() and os.path.exists(local_output_path):
+                os.remove(local_output_path)
+                logger.info(f"Removed local output file: {local_output_path}")
         except Exception as e:
             logger.warning(f"Error cleaning up temporary files: {str(e)}")
         
