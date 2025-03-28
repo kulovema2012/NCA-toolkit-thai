@@ -139,7 +139,8 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, font_nam
                           position="bottom", margin_v=30, subtitle_style="classic", max_width=None,
                           line_color=None, word_color=None, outline_color=None, all_caps=False,
                           max_words_per_line=7, x=None, y=None, alignment="center", bold=False,
-                          italic=False, underline=False, strikeout=False, job_id=None):
+                          italic=False, underline=False, strikeout=False, shadow=None, outline=None,
+                          back_color=None, margin_l=None, margin_r=None, encoding=None, job_id=None):
     """
     Add subtitles to a video using FFmpeg.
     
@@ -154,10 +155,10 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, font_nam
         subtitle_style: Style of subtitles (classic, modern, karaoke, highlight, underline, word_by_word)
         max_width: Maximum width of subtitle text (in pixels)
         line_color: Color for subtitle text
-        word_color: Color for highlighted words
+        word_color: Color for highlighted words (for karaoke/highlight styles)
         outline_color: Color for text outline
         all_caps: Whether to capitalize all text
-        max_words_per_line: Maximum words per subtitle line
+        max_words_per_line: Maximum words per line
         x: X position for subtitles (overrides position)
         y: Y position for subtitles (overrides position)
         alignment: Text alignment (left, center, right)
@@ -165,10 +166,16 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, font_nam
         italic: Whether to use italic text
         underline: Whether to use underlined text
         strikeout: Whether to use strikeout text
-        job_id: Job ID for tracking
-        
+        shadow: Shadow depth for text
+        outline: Outline width for text
+        back_color: Background color for subtitles
+        margin_l: Left margin for subtitles
+        margin_r: Right margin for subtitles
+        encoding: Encoding for subtitles
+        job_id: Unique identifier for the job
+    
     Returns:
-        Path to the output video
+        Path to the output video with subtitles
     """
     logger.info(f"Adding subtitles to video: {video_path}")
     
