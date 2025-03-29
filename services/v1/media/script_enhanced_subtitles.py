@@ -3,9 +3,19 @@ import json
 import srt
 import logging
 import difflib
+import unicodedata
 from datetime import timedelta
 from typing import List, Dict, Tuple, Optional, Union
 from services.cloud_storage import upload_to_cloud_storage
+import re
+
+# Import PyThaiNLP for better Thai word segmentation
+try:
+    from pythainlp.tokenize import word_tokenize
+    PYTHAINLP_AVAILABLE = True
+except ImportError:
+    PYTHAINLP_AVAILABLE = False
+    logging.warning("PyThaiNLP not available. Thai word segmentation will be limited.")
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -28,7 +38,7 @@ def align_script_with_subtitles(script_text: str, srt_file_path: str, output_srt
     
     # Read the SRT file
     try:
-        with open(srt_file_path, 'r', encoding='utf-8') as f:
+        with open(srt_file_path, 'r', encoding='utf-8-sig') as f:
             srt_content = f.read()
             
         # Parse the SRT content
@@ -48,9 +58,10 @@ def align_script_with_subtitles(script_text: str, srt_file_path: str, output_srt
     script_text = script_text.strip()
     
     # Special handling for Thai text - normalize Unicode characters
-    import unicodedata
     script_text = unicodedata.normalize('NFC', script_text)
     
+    # Clean up script text - remove excess whitespace and normalize line breaks
+    script_text = re.sub(r'\s+', ' ', script_text)
     script_lines = [line.strip() for line in script_text.split('\n') if line.strip()]
     
     # If script is empty, return original SRT
@@ -73,7 +84,7 @@ def align_script_with_subtitles(script_text: str, srt_file_path: str, output_srt
     # Determine if we're working with Thai text
     is_thai = any('\u0E00' <= c <= '\u0E7F' for c in full_script)
     if is_thai:
-        logger.info("Detected Thai text, using character-level alignment")
+        logger.info("Detected Thai text, using Thai-specific alignment")
         # For Thai, we need to do character-level alignment since Thai doesn't use spaces between words
         aligned_subtitles = align_thai_text(full_script, subtitles)
     else:
@@ -120,9 +131,31 @@ def align_script_with_subtitles(script_text: str, srt_file_path: str, output_srt
         logger.error(f"Error writing enhanced SRT file: {str(e)}")
         return srt_file_path
 
+def segment_thai_text(text: str) -> List[str]:
+    """
+    Segment Thai text into words using PyThaiNLP if available.
+    Falls back to character-by-character segmentation if PyThaiNLP is not available.
+    
+    Args:
+        text: Thai text to segment
+        
+    Returns:
+        List of Thai words
+    """
+    if PYTHAINLP_AVAILABLE:
+        try:
+            # Use PyThaiNLP's neural network model for better segmentation
+            words = word_tokenize(text, engine="newmm")
+            return words
+        except Exception as e:
+            logger.warning(f"Error using PyThaiNLP for word segmentation: {str(e)}")
+    
+    # Fallback to simple character segmentation (not ideal but better than nothing)
+    return list(text)
+
 def align_thai_text(script_text: str, subtitles: List[srt.Subtitle]) -> List[srt.Subtitle]:
     """
-    Align Thai script text with subtitles using character-level alignment.
+    Align Thai script text with subtitles using improved Thai-specific alignment.
     
     Args:
         script_text: The Thai script text
@@ -137,6 +170,10 @@ def align_thai_text(script_text: str, subtitles: List[srt.Subtitle]) -> List[srt
     # Current position in the script text
     script_pos = 0
     
+    # Pre-segment the script text for better alignment
+    segmented_script = segment_thai_text(script_text)
+    script_with_markers = " ".join(segmented_script)
+    
     # Process each subtitle
     for i, sub in enumerate(subtitles):
         # Skip empty subtitles
@@ -144,51 +181,76 @@ def align_thai_text(script_text: str, subtitles: List[srt.Subtitle]) -> List[srt
             aligned_subtitles.append(sub)
             continue
         
-        # Normalize the subtitle content
-        import unicodedata
+        # Normalize and clean the subtitle content
         sub_content = unicodedata.normalize('NFC', sub.content.strip())
         
+        # Segment the subtitle content
+        segmented_sub = segment_thai_text(sub_content)
+        
         # Find the best match for this subtitle in the script
-        # For Thai, we use a sliding window approach with character-level matching
         best_match = ""
         best_score = 0
         best_pos = script_pos
         
         # Try different window sizes around the current position
-        window_size = max(len(sub_content) * 3, 50)  # Larger window for Thai
+        window_size = max(len(sub_content) * 5, 100)  # Larger window for Thai
         start_pos = max(0, script_pos - window_size)
         end_pos = min(len(script_text), script_pos + len(sub_content) + window_size)
         
         search_text = script_text[start_pos:end_pos]
         
-        # Use difflib to find the best match
+        # Use difflib to find the best match with improved algorithm
         matcher = difflib.SequenceMatcher(None, sub_content, search_text)
         match = matcher.find_longest_match(0, len(sub_content), 0, len(search_text))
         
         if match.size > 0:
             # Calculate the actual position in the full script
             match_pos = start_pos + match.b
-            match_text = script_text[match_pos:match_pos + match.size]
             
-            # Expand the match to include more context
-            # This is especially important for Thai where words aren't separated by spaces
+            # Expand the match to include complete Thai words/phrases
             expanded_start = match_pos
             expanded_end = match_pos + match.size
             
-            # Expand backwards
-            while expanded_start > 0 and script_text[expanded_start-1] not in ['.', '!', '?', '\n', '।', '॥', '।', '॥', '।', '॥', '।', '॥', '。', '？', '！', '।', '॥']:
-                expanded_start -= 1
-                
-            # Expand forwards
-            while expanded_end < len(script_text) and script_text[expanded_end] not in ['.', '!', '?', '\n', '।', '॥', '।', '॥', '।', '॥', '।', '॥', '।', '॥', '。', '？', '！', '।', '॥']:
-                expanded_end += 1
+            # Thai sentence boundary markers
+            thai_sentence_markers = ['.', '!', '?', '\n', '।', '॥', '।', '॥', '।', '॥', '।', '॥', '।', '॥', '。', '？', '！', '।', '॥']
             
-            best_match = script_text[expanded_start:expanded_end]
+            # Expand backwards to sentence boundary or reasonable limit
+            max_backward_expansion = 50  # Limit backward expansion
+            backward_count = 0
+            while expanded_start > 0 and script_text[expanded_start-1] not in thai_sentence_markers and backward_count < max_backward_expansion:
+                expanded_start -= 1
+                backward_count += 1
+                
+            # Expand forwards to sentence boundary or reasonable limit
+            max_forward_expansion = 50  # Limit forward expansion
+            forward_count = 0
+            while expanded_end < len(script_text) and script_text[expanded_end] not in thai_sentence_markers and forward_count < max_forward_expansion:
+                expanded_end += 1
+                forward_count += 1
+            
+            # Get the expanded match
+            expanded_match = script_text[expanded_start:expanded_end]
+            
+            # Ensure we have complete Thai words by using PyThaiNLP to tokenize
+            if PYTHAINLP_AVAILABLE:
+                try:
+                    # Tokenize the expanded match
+                    words = word_tokenize(expanded_match, engine="newmm")
+                    
+                    # Rejoin the words to ensure we have complete Thai words
+                    best_match = "".join(words)
+                except Exception as e:
+                    logger.warning(f"Error tokenizing Thai text: {str(e)}")
+                    best_match = expanded_match
+            else:
+                best_match = expanded_match
+            
             best_pos = expanded_start
             best_score = match.size / len(sub_content) if len(sub_content) > 0 else 0
         
         # If we found a good match, use it
-        if best_score > 0.5:  # Lower threshold for Thai
+        if best_score > 0.4:  # Lower threshold for Thai to catch more matches
+            # Create a new subtitle with the matched text
             new_sub = srt.Subtitle(
                 index=sub.index,
                 start=sub.start,
@@ -202,7 +264,21 @@ def align_thai_text(script_text: str, subtitles: List[srt.Subtitle]) -> List[srt
             aligned_subtitles.append(sub)
             # Don't advance script_pos in this case
     
-    return aligned_subtitles
+    # Post-process subtitles to ensure they don't overlap
+    processed_subtitles = []
+    for i, sub in enumerate(aligned_subtitles):
+        if i > 0 and sub.start < processed_subtitles[i-1].end:
+            # Adjust start time to avoid overlap
+            sub.start = processed_subtitles[i-1].end + timedelta(milliseconds=100)
+            
+            # If this makes the subtitle too short, adjust the end time
+            min_duration = timedelta(seconds=1)  # Minimum 1 second duration
+            if sub.end - sub.start < min_duration:
+                sub.end = sub.start + min_duration
+        
+        processed_subtitles.append(sub)
+    
+    return processed_subtitles
 
 def align_standard_text(script_text: str, subtitles: List[srt.Subtitle]) -> List[srt.Subtitle]:
     """

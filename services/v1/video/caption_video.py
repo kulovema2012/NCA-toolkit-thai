@@ -131,7 +131,7 @@ def cache_result(func):
                 logger.info(f"Cached result for {os.path.basename(video_path)} with {os.path.basename(subtitle_path)}")
         
         return result
-
+    
     return wrapper
 
 @cache_result
@@ -800,6 +800,14 @@ def convert_srt_to_ass_for_thai(srt_path, ass_path, font_name, font_size,
         max_width: Maximum width of text
     """
     try:
+        # Import PyThaiNLP for better Thai word segmentation
+        try:
+            from pythainlp.tokenize import word_tokenize
+            pythainlp_available = True
+        except ImportError:
+            pythainlp_available = False
+            logger.warning("PyThaiNLP not available. Thai word segmentation will be limited.")
+        
         # Read the SRT file
         with open(srt_path, 'r', encoding='utf-8-sig') as f:
             srt_content = f.read()
@@ -834,7 +842,7 @@ def convert_srt_to_ass_for_thai(srt_path, ass_path, font_name, font_size,
             
             # Write the style with explicit font settings - use center alignment (2)
             # Increase border and shadow for better visibility
-            f.write(f"Style: Default,{font_name},{adjusted_font_size},{primary_color_hex},&H0000FFFF,{outline_color_hex},&H80000000,-1,0,0,0,100,100,0,0,1,3,2,2,20,20,{margin_v},1\n\n")
+            f.write(f"Style: Default,{font_name},{adjusted_font_size},{primary_color_hex},&H0000FFFF,{outline_color_hex},&H80000000,-1,0,0,0,100,100,0,0,1,3,2,{alignment},20,20,{margin_v},1\n\n")
             
             # Write events
             f.write("[Events]\n")
@@ -876,9 +884,32 @@ def convert_srt_to_ass_for_thai(srt_path, ass_path, font_name, font_size,
                 # Clean the text and add ASS formatting tags for better Thai rendering
                 text = sub.content.replace('\n', '\\N')
                 
+                # Normalize Unicode characters for Thai text
+                import unicodedata
+                text = unicodedata.normalize('NFC', text)
+                
+                # Process Thai text to ensure proper word boundaries
+                if pythainlp_available:
+                    try:
+                        # Tokenize the text into words
+                        words = word_tokenize(text, engine="newmm")
+                        
+                        # Apply max_words_per_line if specified
+                        if max_words_per_line and len(words) > max_words_per_line:
+                            # Split into chunks of max_words_per_line
+                            chunks = []
+                            for i in range(0, len(words), max_words_per_line):
+                                chunk = words[i:i + max_words_per_line]
+                                chunks.append("".join(chunk))
+                            
+                            # Join chunks with line breaks
+                            text = "\\N".join(chunks)
+                    except Exception as e:
+                        logger.warning(f"Error processing Thai text with PyThaiNLP: {str(e)}")
+                
                 # Add explicit font, position, and formatting tags
                 # Use centered text with proper positioning
-                formatted_text = "{\\fnSarabun\\fs" + str(adjusted_font_size) + "\\bord3\\shad2\\an2}" + text
+                formatted_text = "{\\fnSarabun\\fs" + str(adjusted_font_size) + "\\bord3\\shad2\\an" + str(alignment) + "}" + text
                 
                 # Write the event line with center alignment
                 f.write(f"Dialogue: 0,{start_str},{end_str},Default,,0,0,0,,{formatted_text}\n")
