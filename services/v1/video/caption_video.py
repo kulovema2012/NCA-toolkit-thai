@@ -134,6 +134,189 @@ def cache_result(func):
     
     return wrapper
 
+def convert_srt_to_ass_for_thai(srt_path, ass_path, font_name, font_size, 
+                              primary_color="white", outline_color="black", 
+                              alignment=2, margin_v=20, max_words_per_line=7, max_width=None):
+    """
+    Convert SRT to ASS format with special handling for Thai text.
+    
+    Args:
+        srt_path: Path to the SRT file
+        ass_path: Path to save the ASS file
+        font_name: Font to use
+        font_size: Font size
+        primary_color: Primary text color
+        outline_color: Outline color
+        alignment: Text alignment (1=left, 2=center, 3=right)
+        margin_v: Vertical margin
+        max_words_per_line: Maximum words per line
+        max_width: Maximum width of text
+    """
+    try:
+        # Import PyThaiNLP for better Thai word segmentation
+        try:
+            from pythainlp.tokenize import word_tokenize
+            pythainlp_available = True
+        except ImportError:
+            pythainlp_available = False
+            logger.warning("PyThaiNLP not available. Thai word segmentation will be limited.")
+        
+        # Read the SRT file
+        with open(srt_path, 'r', encoding='utf-8-sig') as f:
+            srt_content = f.read()
+        
+        # Parse the SRT content
+        subs = list(srt.parse(srt_content))
+        
+        # Create ASS file with explicit font embedding
+        with open(ass_path, 'w', encoding='utf-8') as f:
+            # Write ASS header
+            f.write("[Script Info]\n")
+            f.write("Title: Converted from SRT\n")
+            f.write("ScriptType: v4.00+\n")
+            f.write("WrapStyle: 0\n")
+            f.write("ScaledBorderAndShadow: yes\n")
+            f.write("PlayResX: 1920\n")  # Standard HD width
+            f.write("PlayResY: 1080\n")  # Standard HD height
+            f.write("YCbCr Matrix: None\n\n")
+            
+            # Write styles
+            f.write("[V4+ Styles]\n")
+            f.write("Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n")
+            
+            # Define a style for Thai text with explicit font settings
+            # Convert colors to ASS format (BBGGRR&H)
+            # For primary color (text color)
+            if primary_color.lower() == "white":
+                primary_color_hex = "&H00FFFFFF"  # White
+            elif primary_color.lower() == "yellow":
+                primary_color_hex = "&H0000FFFF"  # Yellow
+            elif primary_color.lower() == "black":
+                primary_color_hex = "&H00000000"  # Black
+            else:
+                primary_color_hex = "&H00FFFFFF"  # Default to white
+            
+            # For outline color
+            if outline_color.lower() == "black":
+                outline_color_hex = "&H000000FF"  # Black
+            elif outline_color.lower() == "white":
+                outline_color_hex = "&H00FFFFFF"  # White
+            else:
+                outline_color_hex = "&H000000FF"  # Default to black
+            
+            # Adjust font size - for Thai text, we need a reasonable size
+            adjusted_font_size = int(font_size * 1.5)
+            
+            # Write the style with explicit font settings
+            # Use transparent background (not black) to avoid black box issue
+            # BorderStyle=1 (outline+shadow), Outline=1, Shadow=1
+            f.write(f"Style: Default,{font_name},{adjusted_font_size},{primary_color_hex},&H0000FFFF,{outline_color_hex},&H00000000,-1,0,0,0,100,100,0,0,1,1,1,{alignment},20,20,{margin_v},1\n\n")
+            
+            # Write events
+            f.write("[Events]\n")
+            f.write("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
+            
+            # Process subtitles to prevent overlap and handle word count
+            processed_subs = []
+            for i, sub in enumerate(subs):
+                # Add a small gap between subtitles to prevent overlap
+                if i > 0 and sub.start < processed_subs[i-1].end + timedelta(milliseconds=200):
+                    sub.start = processed_subs[i-1].end + timedelta(milliseconds=200)
+                
+                # Ensure minimum duration for readability
+                min_duration = timedelta(seconds=1)
+                if sub.end - sub.start < min_duration:
+                    sub.end = sub.start + min_duration
+                
+                processed_subs.append(sub)
+            
+            # Write each subtitle as an event
+            for sub in processed_subs:
+                start_time = sub.start.total_seconds()
+                end_time = sub.end.total_seconds()
+                
+                # Convert to ASS time format (h:mm:ss.cc)
+                start_h = int(start_time // 3600)
+                start_m = int((start_time % 3600) // 60)
+                start_s = int(start_time % 60)
+                start_cs = int((start_time % 1) * 100)
+                
+                end_h = int(end_time // 3600)
+                end_m = int((end_time % 3600) // 60)
+                end_s = int(end_time % 60)
+                end_cs = int((end_time % 1) * 100)
+                
+                start_str = f"{start_h}:{start_m:02d}:{start_s:02d}.{start_cs:02d}"
+                end_str = f"{end_h}:{end_m:02d}:{end_s:02d}.{end_cs:02d}"
+                
+                # Clean the text and add ASS formatting tags for better Thai rendering
+                text = sub.content.replace('\n', '\\N')
+                
+                # Normalize Unicode characters for Thai text
+                import unicodedata
+                text = unicodedata.normalize('NFC', text)
+                
+                # Process Thai text to ensure proper word boundaries
+                if pythainlp_available:
+                    try:
+                        # Tokenize the text into words
+                        words = word_tokenize(text, engine="newmm")
+                        
+                        # Apply max_words_per_line if specified
+                        if max_words_per_line and len(words) > max_words_per_line:
+                            # Split into chunks of max_words_per_line
+                            chunks = []
+                            for i in range(0, len(words), max_words_per_line):
+                                chunk = words[i:i + max_words_per_line]
+                                chunks.append("".join(chunk))
+                            
+                            # Join chunks with line breaks
+                            text = "\\N".join(chunks)
+                    except Exception as e:
+                        logger.warning(f"Error processing Thai text with PyThaiNLP: {str(e)}")
+                
+                # Add explicit font, position, and formatting tags
+                # Use simpler formatting to avoid rendering issues
+                # Avoid using too many ASS tags that might cause rendering problems
+                formatted_text = "{\\fn" + font_name + "\\fs" + str(adjusted_font_size) + "\\1c" + primary_color_hex + "\\3c" + outline_color_hex + "\\bord1\\shad0}" + text
+                
+                # Write the event line
+                f.write(f"Dialogue: 0,{start_str},{end_str},Default,,0,0,0,,{formatted_text}\n")
+        
+        logger.info(f"Successfully converted SRT to ASS with Thai support: {ass_path}")
+        return ass_path
+    
+    except Exception as e:
+        logger.error(f"Error converting SRT to ASS for Thai: {str(e)}")
+        logger.error(traceback.format_exc())
+        return None
+
+def get_available_thai_font():
+    """
+    Check for available Thai fonts on the system and return the best one.
+    """
+    # List of Thai fonts to check in order of preference
+    thai_fonts = [
+        "Sarabun", "Garuda", "Loma", "Kinnari", "Norasi", 
+        "Waree", "TH Sarabun New", "Tahoma", "Arial Unicode MS"
+    ]
+    
+    # Try to use fc-list to find available fonts (works on Linux/macOS)
+    try:
+        import subprocess
+        result = subprocess.run(["fc-list"], capture_output=True, text=True)
+        fc_output = result.stdout.lower()
+        
+        for font in thai_fonts:
+            if font.lower() in fc_output:
+                logger.info(f"Found Thai font: {font}")
+                return font
+    except Exception as e:
+        logger.warning(f"Could not check for Thai fonts: {str(e)}")
+    
+    # Default to Sarabun which should be installed
+    return "Sarabun"
+
 @cache_result
 def add_subtitles_to_video(video_path, subtitle_path, output_path=None, font_name="Arial", font_size=24, 
                           position="bottom", margin_v=30, subtitle_style="classic", max_width=None,
@@ -200,7 +383,7 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, font_nam
                 is_thai = True
                 # Use a Thai font if Thai text is detected and no specific font is provided
                 if font_name == "Arial":
-                    font_name = "Sarabun"  # Default Thai font
+                    font_name = get_available_thai_font()  # Get best available Thai font
                 logger.info(f"Thai text detected in subtitles, using font: {font_name}")
     except Exception as e:
         logger.warning(f"Error checking for Thai text: {str(e)}")
@@ -304,6 +487,7 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, font_nam
         )
         
         # Use the ASS subtitle filter with the Thai-optimized ASS file
+        # Use the 'ass' filter instead of 'subtitles' for better Thai rendering
         subtitle_filter = f"ass='{thai_ass_path}'"
         logger.info(f"Using Thai-optimized ASS subtitles: {thai_ass_path}")
     else:
@@ -337,10 +521,14 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, font_nam
         logger.info(f"Adding voice-over delay of {voice_over_delay}s for Thai video")
         # Use the adelay filter to delay audio
         audio_filter = f"adelay={int(voice_over_delay*1000)}:all=1"
+        
+        # For Thai subtitles, use a simpler command that's known to work with Thai text
+        # Use -vf instead of -filter_complex for simpler processing
         ffmpeg_cmd = [
-            "ffmpeg", "-y", "-i", video_path, 
-            "-filter_complex", f"[0:v]{subtitle_filter}[v];[0:a]{audio_filter}[a]", 
-            "-map", "[v]", "-map", "[a]", 
+            "ffmpeg", "-y", 
+            "-i", video_path,
+            "-vf", subtitle_filter,
+            "-af", audio_filter,
             "-c:v", "libx264", "-crf", "18", "-preset", "veryfast",
             "-c:a", "aac", "-b:a", "192k",
             output_path
@@ -780,147 +968,6 @@ def convert_srt_to_ass(srt_path, ass_path, font_name, font_size, line_color, out
         
     except Exception as e:
         logger.error(f"Error converting SRT to ASS: {str(e)}")
-
-def convert_srt_to_ass_for_thai(srt_path, ass_path, font_name, font_size, 
-                              primary_color="white", outline_color="black", 
-                              alignment=2, margin_v=20, max_words_per_line=7, max_width=None):
-    """
-    Convert SRT to ASS format with special handling for Thai text.
-    
-    Args:
-        srt_path: Path to the SRT file
-        ass_path: Path to save the ASS file
-        font_name: Font to use
-        font_size: Font size
-        primary_color: Primary text color
-        outline_color: Outline color
-        alignment: Text alignment (1=left, 2=center, 3=right)
-        margin_v: Vertical margin
-        max_words_per_line: Maximum words per line
-        max_width: Maximum width of text
-    """
-    try:
-        # Import PyThaiNLP for better Thai word segmentation
-        try:
-            from pythainlp.tokenize import word_tokenize
-            pythainlp_available = True
-        except ImportError:
-            pythainlp_available = False
-            logger.warning("PyThaiNLP not available. Thai word segmentation will be limited.")
-        
-        # Read the SRT file
-        with open(srt_path, 'r', encoding='utf-8-sig') as f:
-            srt_content = f.read()
-        
-        # Parse the SRT content
-        subs = list(srt.parse(srt_content))
-        
-        # Create ASS file with explicit font embedding
-        with open(ass_path, 'w', encoding='utf-8') as f:
-            # Write ASS header
-            f.write("[Script Info]\n")
-            f.write("Title: Converted from SRT\n")
-            f.write("ScriptType: v4.00+\n")
-            f.write("WrapStyle: 0\n")
-            f.write("ScaledBorderAndShadow: yes\n")
-            f.write("PlayResX: 1920\n")  # Standard HD width
-            f.write("PlayResY: 1080\n")  # Standard HD height
-            f.write("YCbCr Matrix: None\n\n")
-            
-            # Write styles
-            f.write("[V4+ Styles]\n")
-            f.write("Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n")
-            
-            # Define a style for Thai text with explicit font settings
-            # Convert colors to ASS format (BBGGRR&H)
-            primary_color_hex = "&H00FFFFFF"  # White
-            outline_color_hex = "&H000000FF"  # Black
-            
-            # Adjust font size - for Thai text, we multiply by 2.5 to make it more visible
-            # This compensates for the small font size often specified in parameters
-            adjusted_font_size = int(font_size * 2.5)
-            
-            # Write the style with explicit font settings - use center alignment (2)
-            # Increase border and shadow for better visibility
-            f.write(f"Style: Default,{font_name},{adjusted_font_size},{primary_color_hex},&H0000FFFF,{outline_color_hex},&H80000000,-1,0,0,0,100,100,0,0,1,3,2,{alignment},20,20,{margin_v},1\n\n")
-            
-            # Write events
-            f.write("[Events]\n")
-            f.write("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
-            
-            # Process subtitles to prevent overlap and handle word count
-            processed_subs = []
-            for i, sub in enumerate(subs):
-                # Add a small gap between subtitles to prevent overlap
-                if i > 0 and sub.start < processed_subs[i-1].end + timedelta(milliseconds=200):
-                    sub.start = processed_subs[i-1].end + timedelta(milliseconds=200)
-                
-                # Ensure minimum duration for readability
-                min_duration = timedelta(seconds=1)
-                if sub.end - sub.start < min_duration:
-                    sub.end = sub.start + min_duration
-                
-                processed_subs.append(sub)
-            
-            # Write each subtitle as an event
-            for sub in processed_subs:
-                start_time = sub.start.total_seconds()
-                end_time = sub.end.total_seconds()
-                
-                # Convert to ASS time format (h:mm:ss.cc)
-                start_h = int(start_time // 3600)
-                start_m = int((start_time % 3600) // 60)
-                start_s = int(start_time % 60)
-                start_cs = int((start_time % 1) * 100)
-                
-                end_h = int(end_time // 3600)
-                end_m = int((end_time % 3600) // 60)
-                end_s = int(end_time % 60)
-                end_cs = int((end_time % 1) * 100)
-                
-                start_str = f"{start_h}:{start_m:02d}:{start_s:02d}.{start_cs:02d}"
-                end_str = f"{end_h}:{end_m:02d}:{end_s:02d}.{end_cs:02d}"
-                
-                # Clean the text and add ASS formatting tags for better Thai rendering
-                text = sub.content.replace('\n', '\\N')
-                
-                # Normalize Unicode characters for Thai text
-                import unicodedata
-                text = unicodedata.normalize('NFC', text)
-                
-                # Process Thai text to ensure proper word boundaries
-                if pythainlp_available:
-                    try:
-                        # Tokenize the text into words
-                        words = word_tokenize(text, engine="newmm")
-                        
-                        # Apply max_words_per_line if specified
-                        if max_words_per_line and len(words) > max_words_per_line:
-                            # Split into chunks of max_words_per_line
-                            chunks = []
-                            for i in range(0, len(words), max_words_per_line):
-                                chunk = words[i:i + max_words_per_line]
-                                chunks.append("".join(chunk))
-                            
-                            # Join chunks with line breaks
-                            text = "\\N".join(chunks)
-                    except Exception as e:
-                        logger.warning(f"Error processing Thai text with PyThaiNLP: {str(e)}")
-                
-                # Add explicit font, position, and formatting tags
-                # Use centered text with proper positioning
-                formatted_text = "{\\fnSarabun\\fs" + str(adjusted_font_size) + "\\bord3\\shad2\\an" + str(alignment) + "}" + text
-                
-                # Write the event line with center alignment
-                f.write(f"Dialogue: 0,{start_str},{end_str},Default,,0,0,0,,{formatted_text}\n")
-        
-        logger.info(f"Successfully converted SRT to ASS with Thai support: {ass_path}")
-        return ass_path
-    
-    except Exception as e:
-        logger.error(f"Error converting SRT to ASS for Thai: {str(e)}")
-        logger.error(traceback.format_exc())
-        return None
 
 def convert_srt_to_timed_text(srt_path, text_path):
     try:
