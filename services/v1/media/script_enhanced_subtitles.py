@@ -360,7 +360,7 @@ def enhance_subtitles_from_segments(script_text: str, segments: List[Dict], outp
         segments: List of transcription segments from Whisper
         output_srt_path: Path to save the enhanced SRT file
         upload_to_cloud: Whether to upload the SRT file to cloud storage (default: True)
-        min_start_time: Minimum start time for the first subtitle (in seconds)
+        min_start_time: Minimum start time for all subtitles (in seconds)
         
     Returns:
         If upload_to_cloud is True: Dict with local_path and cloud_url of the enhanced SRT file
@@ -371,8 +371,8 @@ def enhance_subtitles_from_segments(script_text: str, segments: List[Dict], outp
     # Convert segments to SRT format
     subtitles = []
     for i, segment in enumerate(segments):
-        # Apply minimum start time to ensure subtitles don't appear before voice-over
-        start_seconds = max(segment['start'], min_start_time if i == 0 else segment['start'])
+        # Apply minimum start time to all segments
+        start_seconds = max(segment['start'], min_start_time)
         start_time = timedelta(seconds=start_seconds)
         end_time = timedelta(seconds=segment['end'])
         

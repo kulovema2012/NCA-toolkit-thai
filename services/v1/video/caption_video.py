@@ -207,10 +207,10 @@ def convert_srt_to_ass_for_thai(srt_path, ass_path, font_name, font_size,
             # Adjust font size - for Thai text, we need a reasonable size
             adjusted_font_size = int(font_size * 1.5)
             
-            # Write the style with explicit font settings
-            # Use transparent background (not black) to avoid black box issue
-            # BorderStyle=1 (outline+shadow), Outline=1, Shadow=1
-            f.write(f"Style: Default,{font_name},{adjusted_font_size},{primary_color_hex},&H0000FFFF,{outline_color_hex},&H00000000,-1,0,0,0,100,100,0,0,1,1,1,{alignment},20,20,{margin_v},1\n\n")
+            # Use a completely transparent background (&H00000000) to avoid black box issues
+            # Increase outline width to 2 for better visibility
+            # Set BorderStyle=3 for opaque box with 15% opacity for better readability
+            f.write(f"Style: Default,{font_name},{adjusted_font_size},{primary_color_hex},&H0000FFFF,{outline_color_hex},&H20000000,1,0,0,0,100,100,0,0,3,2,0,{alignment},20,20,{margin_v},1\n\n")
             
             # Write events
             f.write("[Events]\n")
@@ -275,10 +275,9 @@ def convert_srt_to_ass_for_thai(srt_path, ass_path, font_name, font_size,
                     except Exception as e:
                         logger.warning(f"Error processing Thai text with PyThaiNLP: {str(e)}")
                 
-                # Add explicit font, position, and formatting tags
-                # Use simpler formatting to avoid rendering issues
-                # Avoid using too many ASS tags that might cause rendering problems
-                formatted_text = "{\\fn" + font_name + "\\fs" + str(adjusted_font_size) + "\\1c" + primary_color_hex + "\\3c" + outline_color_hex + "\\bord1\\shad0}" + text
+                # Use minimal ASS formatting to avoid rendering issues
+                # Just set the font, size, and colors
+                formatted_text = "{\\fnArial}" + text
                 
                 # Write the event line
                 f.write(f"Dialogue: 0,{start_str},{end_str},Default,,0,0,0,,{formatted_text}\n")
@@ -288,6 +287,7 @@ def convert_srt_to_ass_for_thai(srt_path, ass_path, font_name, font_size,
     
     except Exception as e:
         logger.error(f"Error converting SRT to ASS for Thai: {str(e)}")
+        import traceback
         logger.error(traceback.format_exc())
         return None
 
@@ -296,25 +296,93 @@ def get_available_thai_font():
     Check for available Thai fonts on the system and return the best one.
     """
     # List of Thai fonts to check in order of preference
+    # Prioritize fonts that are likely to be available in cloud environments
     thai_fonts = [
         "Sarabun", "Garuda", "Loma", "Kinnari", "Norasi", 
-        "Waree", "TH Sarabun New", "Tahoma", "Arial Unicode MS"
+        "Waree", "TH Sarabun New", "Tahoma", "Arial Unicode MS", "DejaVu Sans"
     ]
     
-    # Try to use fc-list to find available fonts (works on Linux/macOS)
-    try:
-        import subprocess
-        result = subprocess.run(["fc-list"], capture_output=True, text=True)
-        fc_output = result.stdout.lower()
-        
-        for font in thai_fonts:
-            if font.lower() in fc_output:
-                logger.info(f"Found Thai font: {font}")
-                return font
-    except Exception as e:
-        logger.warning(f"Could not check for Thai fonts: {str(e)}")
+    # Check if we're on Windows (for local development)
+    import platform
+    if platform.system() == "Windows":
+        try:
+            import ctypes
+            from ctypes import wintypes
+            
+            # Use Windows API to get font directory
+            CSIDL_FONTS = 0x0014
+            SHGFP_TYPE_CURRENT = 0
+            buf = ctypes.create_unicode_buffer(wintypes.MAX_PATH)
+            ctypes.windll.shell32.SHGetFolderPathW(0, CSIDL_FONTS, 0, SHGFP_TYPE_CURRENT, buf)
+            fonts_dir = buf.value
+            
+            # Check if font files exist
+            import os
+            for font in thai_fonts:
+                # Check common extensions
+                for ext in ['.ttf', '.ttc', '.otf']:
+                    if os.path.exists(os.path.join(fonts_dir, f"{font}{ext}")):
+                        logger.info(f"Found Thai font on Windows: {font}")
+                        return font
+            
+            # If we can't find any specific Thai font, check if Tahoma exists
+            # Tahoma has good Thai support and is common on Windows
+            if os.path.exists(os.path.join(fonts_dir, "tahoma.ttf")):
+                logger.info("Using Tahoma as fallback Thai font")
+                return "Tahoma"
+                
+            # If all else fails, use Arial which should be on all Windows systems
+            if os.path.exists(os.path.join(fonts_dir, "arial.ttf")):
+                logger.info("Using Arial as fallback Thai font")
+                return "Arial"
+        except Exception as e:
+            logger.warning(f"Error checking for Thai fonts on Windows: {str(e)}")
+    else:
+        # For Linux/Cloud environments
+        # First try fc-list (standard on most Linux distributions)
+        try:
+            import subprocess
+            result = subprocess.run(["fc-list"], capture_output=True, text=True)
+            fc_output = result.stdout.lower()
+            
+            for font in thai_fonts:
+                if font.lower() in fc_output:
+                    logger.info(f"Found Thai font via fc-list: {font}")
+                    return font
+                    
+            # If no specific Thai font is found, look for common Linux fonts with Thai support
+            for fallback in ["DejaVu Sans", "Noto Sans", "FreeSans"]:
+                if fallback.lower() in fc_output:
+                    logger.info(f"Using fallback font with Thai support: {fallback}")
+                    return fallback
+        except Exception as e:
+            logger.warning(f"Could not check for Thai fonts using fc-list: {str(e)}")
+            
+        # As a second approach, check common font directories on Linux
+        try:
+            import os
+            linux_font_dirs = [
+                "/usr/share/fonts/",
+                "/usr/local/share/fonts/",
+                "/usr/share/fonts/truetype/",
+                "/usr/share/fonts/opentype/"
+            ]
+            
+            for font_dir in linux_font_dirs:
+                if os.path.exists(font_dir):
+                    # Check for Thai fonts
+                    for root, dirs, files in os.walk(font_dir):
+                        for font in thai_fonts:
+                            for file in files:
+                                if font.lower() in file.lower() and file.lower().endswith(('.ttf', '.otf', '.ttc')):
+                                    logger.info(f"Found Thai font in {root}: {file}")
+                                    return font
+        except Exception as e:
+            logger.warning(f"Error checking font directories: {str(e)}")
     
-    # Default to Sarabun which should be installed
+    # Default to Sarabun which should be installed in your cloud environment
+    # based on your memory about available Thai fonts
+    logger.info("Using default Thai font: Sarabun")
     return "Sarabun"
 
 @cache_result
@@ -486,10 +554,32 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, font_nam
             max_width
         )
         
-        # Use the ASS subtitle filter with the Thai-optimized ASS file
-        # Use the 'ass' filter instead of 'subtitles' for better Thai rendering
-        subtitle_filter = f"ass='{thai_ass_path}'"
-        logger.info(f"Using Thai-optimized ASS subtitles: {thai_ass_path}")
+        # Properly escape the subtitle path for Windows
+        escaped_subtitle_path = thai_ass_path.replace('\\', '\\\\')
+        
+        # Use a more direct approach with the ASS filter
+        subtitle_filter = f"ass={escaped_subtitle_path}"
+        
+        # Add voice-over delay of 0.2 seconds for Thai videos to ensure synchronization
+        voice_over_delay = 0.2
+        logger.info(f"Adding voice-over delay of {voice_over_delay}s for Thai video")
+        # Use the adelay filter to delay audio
+        audio_filter = f"adelay={int(voice_over_delay*1000)}:all=1"
+        
+        # For Thai subtitles, use a simpler command that's known to work with Thai text
+        # Use -vf instead of -filter_complex for simpler processing
+        ffmpeg_cmd = [
+            "ffmpeg", "-y", 
+            "-i", video_path,
+            "-vf", subtitle_filter,
+            "-af", audio_filter,
+            "-c:v", "libx264", "-crf", "18", "-preset", "veryfast",
+            "-c:a", "aac", "-b:a", "192k",
+            output_path
+        ]
+        
+        # Log the full command for debugging
+        logger.info(f"Thai subtitle FFmpeg command: {' '.join(ffmpeg_cmd)}")
     else:
         if subtitle_style == "classic":
             # Classic style with simple text - ensure text is visible with proper formatting
@@ -515,25 +605,6 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, font_nam
             # Default to classic if style not recognized
             subtitle_filter = f"subtitles='{processed_subtitle_path}':force_style='FontName={font_name},FontSize={adjusted_font_size},PrimaryColour={line_color},OutlineColour={outline_color},BorderStyle=1,Outline=1,Shadow=1,MarginV={margin_v},Alignment={align_param}{font_formatting}'"
     
-    # Add voice-over delay of 0.2 seconds for Thai videos to ensure synchronization
-    if is_thai:
-        voice_over_delay = 0.2
-        logger.info(f"Adding voice-over delay of {voice_over_delay}s for Thai video")
-        # Use the adelay filter to delay audio
-        audio_filter = f"adelay={int(voice_over_delay*1000)}:all=1"
-        
-        # For Thai subtitles, use a simpler command that's known to work with Thai text
-        # Use -vf instead of -filter_complex for simpler processing
-        ffmpeg_cmd = [
-            "ffmpeg", "-y", 
-            "-i", video_path,
-            "-vf", subtitle_filter,
-            "-af", audio_filter,
-            "-c:v", "libx264", "-crf", "18", "-preset", "veryfast",
-            "-c:a", "aac", "-b:a", "192k",
-            output_path
-        ]
-    else:
         # No audio delay for non-Thai videos
         ffmpeg_cmd = [
             "ffmpeg", "-y", "-i", video_path, 

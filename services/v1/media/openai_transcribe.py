@@ -150,7 +150,7 @@ def transcribe_with_openai(media_url, language="th", response_format="verbose_js
             )
         
         # Write the SRT file
-        with open(srt_file, "w", encoding="utf-8") as f:
+        with open(srt_file, "w", encoding="utf-8-sig") as f:
             f.write(srt.compose(srt_content))
         logger.info(f"Created SRT file: {srt_file}")
         
