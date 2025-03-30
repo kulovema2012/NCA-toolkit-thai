@@ -205,19 +205,31 @@ def convert_srt_to_ass_for_thai(srt_path, ass_path, font_name, font_size,
             else:
                 outline_color_hex = "&H000000FF"  # Default to black
             
-            # For back color
-            if back_color.startswith("&H"):
-                back_color_hex = back_color
-            elif back_color.lower() == "black":
-                back_color_hex = "&H80000000"  # Semi-transparent black
-            elif back_color.lower() == "red":
-                back_color_hex = "&H800000FF"  # Semi-transparent red
-            elif back_color.lower() == "blue":
-                back_color_hex = "&H80FF0000"  # Semi-transparent blue
-            elif back_color.lower() == "green":
-                back_color_hex = "&H8000FF00"  # Semi-transparent green
-            elif back_color.lower() == "transparent":
-                back_color_hex = "&H00000000"  # Fully transparent
+            # For back color - initialize with a default
+            back_color_hex = "&H80000000"  # Default: semi-transparent black
+            
+            # Process back_color parameter if provided
+            if back_color:
+                # Log the received back_color for debugging
+                logger.info(f"Processing back_color: {back_color}")
+                
+                if isinstance(back_color, str):
+                    if back_color.startswith("&H"):
+                        # Already in ASS format
+                        back_color_hex = back_color
+                    elif back_color.lower() == "black":
+                        back_color_hex = "&H80000000"  # Semi-transparent black
+                    elif back_color.lower() == "red":
+                        back_color_hex = "&H800000FF"  # Semi-transparent red
+                    elif back_color.lower() == "blue":
+                        back_color_hex = "&H80FF0000"  # Semi-transparent blue
+                    elif back_color.lower() == "green":
+                        back_color_hex = "&H8000FF00"  # Semi-transparent green
+                    elif back_color.lower() == "transparent":
+                        back_color_hex = "&H00000000"  # Fully transparent
+            
+            # Log the final back_color_hex for debugging
+            logger.info(f"Using back_color_hex: {back_color_hex}")
             
             # Adjust font size based on video dimensions and orientation
             adjusted_font_size = int(font_size * 1.5)

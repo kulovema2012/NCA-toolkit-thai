@@ -366,11 +366,27 @@ def enhance_subtitles_from_segments(script_text: str, segments: List[Dict], outp
     
     # Convert segments to SRT format
     subtitles = []
+    
+    # Process segments to extend durations and ensure better synchronization
     for i, segment in enumerate(segments):
         # Apply minimum start time to all segments
         start_seconds = max(segment['start'], min_start_time)
+        
+        # Calculate end time - extend duration by 30% to keep subtitles on screen longer
+        # This helps with synchronization between voice-over and subtitles
+        duration = segment['end'] - segment['start']
+        extended_duration = duration * 1.3  # Extend by 30%
+        
+        # If this is not the last segment, make sure we don't overlap with the next segment
+        if i < len(segments) - 1:
+            next_start = segments[i+1]['start']
+            end_seconds = min(start_seconds + extended_duration, next_start - 0.1)  # Leave a small gap
+        else:
+            end_seconds = start_seconds + extended_duration
+        
+        # Create timedelta objects for SRT
         start_time = timedelta(seconds=start_seconds)
-        end_time = timedelta(seconds=segment['end'])
+        end_time = timedelta(seconds=end_seconds)
         
         subtitles.append(
             srt.Subtitle(

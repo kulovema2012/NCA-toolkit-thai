@@ -116,6 +116,13 @@ def script_enhanced_auto_caption():
             if param in data:
                 styling_params[param] = data[param]
         
+        # Special handling for back_color to ensure it's properly passed through
+        if "back_color" in styling_params:
+            logger.info(f"Found back_color in request: {styling_params['back_color']}")
+        elif "style" in settings_obj and "back_color" in settings_obj["style"]:
+            styling_params["back_color"] = settings_obj["style"]["back_color"]
+            logger.info(f"Found back_color in settings.style: {styling_params['back_color']}")
+        
         # Log the extracted styling parameters
         logger.info(f"Extracted styling parameters: {styling_params}")
         
