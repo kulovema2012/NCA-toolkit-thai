@@ -204,7 +204,7 @@ def convert_srt_to_ass_for_thai(srt_path, ass_path, font_name, font_size,
             else:
                 outline_color_hex = "&H000000FF"  # Default to black
             
-            # Adjust font size - for Thai text, we need a reasonable size
+            # Adjust font size based on video dimensions and orientation
             adjusted_font_size = int(font_size * 1.5)
             
             # Use a completely transparent background (&H00000000) to avoid black box issues
@@ -518,9 +518,9 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, font_nam
     if alignment == "left":
         align_param = 1
     elif alignment == "right":
-        align_param = 2
+        align_param = 3
     else:  # center (default)
-        align_param = 0
+        align_param = 2
     
     # Set up font formatting
     font_formatting = ""

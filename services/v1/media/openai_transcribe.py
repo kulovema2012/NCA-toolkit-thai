@@ -126,7 +126,7 @@ def transcribe_with_openai(media_url, language="th", response_format="verbose_js
         
         # Create text file
         text_file = os.path.join(STORAGE_PATH, f"{job_id}.txt")
-        with open(text_file, "w", encoding="utf-8") as f:
+        with open(text_file, "w", encoding="utf-8-sig") as f:
             f.write(result["text"])
         logger.info(f"Created text file: {text_file}")
         
