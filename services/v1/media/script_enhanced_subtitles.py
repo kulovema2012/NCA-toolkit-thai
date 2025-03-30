@@ -372,15 +372,22 @@ def enhance_subtitles_from_segments(script_text: str, segments: List[Dict], outp
         # Apply minimum start time to all segments
         start_seconds = max(segment['start'], min_start_time)
         
-        # Calculate end time - extend duration by 30% to keep subtitles on screen longer
+        # PRE-DISPLAY BUFFER: Show subtitles 0.5 seconds BEFORE the voice actually starts
+        # This helps with synchronization perception
+        pre_display_buffer = 0.5
+        start_seconds = max(start_seconds - pre_display_buffer, min_start_time)
+        
+        # Calculate end time - extend duration by 50% to keep subtitles on screen longer
         # This helps with synchronization between voice-over and subtitles
         duration = segment['end'] - segment['start']
-        extended_duration = duration * 1.3  # Extend by 30%
+        extended_duration = duration * 1.5  # Extend by 50% (increased from 30%)
         
         # If this is not the last segment, make sure we don't overlap with the next segment
+        # But allow for some overlap to ensure continuous text display
         if i < len(segments) - 1:
             next_start = segments[i+1]['start']
-            end_seconds = min(start_seconds + extended_duration, next_start - 0.1)  # Leave a small gap
+            # Allow for a small overlap between segments (0.3 seconds)
+            end_seconds = min(start_seconds + extended_duration, next_start + 0.3)
         else:
             end_seconds = start_seconds + extended_duration
         

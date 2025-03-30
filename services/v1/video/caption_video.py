@@ -217,6 +217,10 @@ def convert_srt_to_ass_for_thai(srt_path, ass_path, font_name, font_size,
                     if back_color.startswith("&H"):
                         # Already in ASS format
                         back_color_hex = back_color
+                    elif back_color.startswith("H"):
+                        # Missing the & prefix, add it
+                        back_color_hex = "&" + back_color
+                        logger.info(f"Fixed back_color format by adding &: {back_color_hex}")
                     elif back_color.lower() == "black":
                         back_color_hex = "&H80000000"  # Semi-transparent black
                     elif back_color.lower() == "red":
@@ -242,75 +246,64 @@ def convert_srt_to_ass_for_thai(srt_path, ass_path, font_name, font_size,
             f.write("[Events]\n")
             f.write("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
             
-            # Process subtitles to prevent overlap and handle word count
-            processed_subs = []
-            for i, sub in enumerate(subs):
-                # Add a small gap between subtitles to prevent overlap
-                if i > 0 and sub.start < processed_subs[i-1].end + timedelta(milliseconds=200):
-                    sub.start = processed_subs[i-1].end + timedelta(milliseconds=200)
+            # Process each subtitle
+            for i, subtitle in enumerate(subs):
+                start_time = subtitle.start.total_seconds()
+                end_time = subtitle.end.total_seconds()
                 
-                # Ensure minimum duration for readability
-                min_duration = timedelta(seconds=1)
-                if sub.end - sub.start < min_duration:
-                    sub.end = sub.start + min_duration
+                # Format the times as ASS format (h:mm:ss.cc)
+                start_formatted = format_time_ass(start_time)
+                end_formatted = format_time_ass(end_time)
                 
-                processed_subs.append(sub)
-            
-            # Write each subtitle as an event
-            for sub in processed_subs:
-                start_time = sub.start.total_seconds()
-                end_time = sub.end.total_seconds()
+                # Process the text with Thai word segmentation
+                text = subtitle.content
                 
-                # Convert to ASS time format (h:mm:ss.cc)
-                start_h = int(start_time // 3600)
-                start_m = int((start_time % 3600) // 60)
-                start_s = int(start_time % 60)
-                start_cs = int((start_time % 1) * 100)
-                
-                end_h = int(end_time // 3600)
-                end_m = int((end_time % 3600) // 60)
-                end_s = int(end_time % 60)
-                end_cs = int((end_time % 1) * 100)
-                
-                start_str = f"{start_h}:{start_m:02d}:{start_s:02d}.{start_cs:02d}"
-                end_str = f"{end_h}:{end_m:02d}:{end_s:02d}.{end_cs:02d}"
-                
-                # Clean the text and add ASS formatting tags for better Thai rendering
-                text = sub.content.replace('\n', '\\N')
-                
-                # Normalize Unicode characters for Thai text
-                import unicodedata
-                text = unicodedata.normalize('NFC', text)
-                
-                # Process Thai text to ensure proper word boundaries
-                if pythainlp_available:
-                    try:
-                        # Tokenize the text into words
-                        words = word_tokenize(text, engine="newmm")
-                        
-                        # Apply max_words_per_line if specified
-                        if max_words_per_line and len(words) > max_words_per_line:
-                            # Split into chunks of max_words_per_line
-                            chunks = []
-                            for i in range(0, len(words), max_words_per_line):
-                                chunk = words[i:i + max_words_per_line]
-                                chunks.append("".join(chunk))
+                # Apply max_words_per_line if specified
+                if max_words_per_line and max_words_per_line > 0:
+                    # Use PyThaiNLP for better word segmentation if available
+                    if pythainlp_available:
+                        try:
+                            # Tokenize the text into words
+                            words = word_tokenize(text, engine="newmm")
                             
-                            # Join chunks with line breaks
+                            # Group words into lines based on max_words_per_line
+                            lines = []
+                            current_line = []
+                            word_count = 0
+                            
+                            for word in words:
+                                current_line.append(word)
+                                word_count += 1
+                                
+                                if word_count >= max_words_per_line:
+                                    lines.append("".join(current_line))
+                                    current_line = []
+                                    word_count = 0
+                            
+                            # Add any remaining words
+                            if current_line:
+                                lines.append("".join(current_line))
+                            
+                            # Join lines with newline character
+                            text = "\\N".join(lines)
+                            logger.info(f"Applied max_words_per_line={max_words_per_line}, resulting in {len(lines)} lines")
+                        except Exception as e:
+                            logger.error(f"Error in Thai word segmentation with PyThaiNLP: {str(e)}")
+                            # Fall back to simple character-based segmentation
+                            if len(text) > max_words_per_line * 5:  # Rough estimate for Thai characters
+                                chunks = [text[i:i+max_words_per_line*5] for i in range(0, len(text), max_words_per_line*5)]
+                                text = "\\N".join(chunks)
+                    else:
+                        # Simple character-based segmentation as fallback
+                        if len(text) > max_words_per_line * 5:  # Rough estimate for Thai characters
+                            chunks = [text[i:i+max_words_per_line*5] for i in range(0, len(text), max_words_per_line*5)]
                             text = "\\N".join(chunks)
-                    except Exception as e:
-                        logger.warning(f"Error processing Thai text with PyThaiNLP: {str(e)}")
-                
-                # Use minimal ASS formatting to avoid rendering issues
-                # Just set the font, size, and colors
-                formatted_text = "{\\fnArial}" + text
                 
                 # Write the event line
-                f.write(f"Dialogue: 0,{start_str},{end_str},Default,,0,0,0,,{formatted_text}\n")
-        
-        logger.info(f"Successfully converted SRT to ASS with Thai support: {ass_path}")
+                f.write(f"Dialogue: 0,{start_formatted},{end_formatted},Default,,0,0,0,,{text}\n")
+            
+        logger.info(f"Successfully converted SRT to ASS with Thai text handling: {ass_path}")
         return ass_path
-    
     except Exception as e:
         logger.error(f"Error converting SRT to ASS for Thai: {str(e)}")
         import traceback
@@ -1287,3 +1280,12 @@ def contains_thai(s):
     else:
         thai_range = range(0x0E00, 0x0E7F)
         return any(ord(c) in thai_range for c in s)
+
+def format_time_ass(time_in_seconds):
+    """Format time in seconds to ASS format (h:mm:ss.cc)."""
+    hours = int(time_in_seconds // 3600)
+    minutes = int((time_in_seconds % 3600) // 60)
+    seconds = int(time_in_seconds % 60)
+    centiseconds = int((time_in_seconds % 1) * 100)
+    
+    return f"{hours}:{minutes:02d}:{seconds:02d}.{centiseconds:02d}"
