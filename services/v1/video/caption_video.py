@@ -136,7 +136,7 @@ def cache_result(func):
 
 def convert_srt_to_ass_for_thai(srt_path, ass_path, font_name, font_size, 
                               primary_color="white", outline_color="black", 
-                              alignment=2, margin_v=20, max_words_per_line=7, max_width=None):
+                              alignment=2, margin_v=20, max_words_per_line=7, max_width=None, back_color="black"):
     """
     Convert SRT to ASS format with special handling for Thai text.
     
@@ -151,6 +151,7 @@ def convert_srt_to_ass_for_thai(srt_path, ass_path, font_name, font_size,
         margin_v: Vertical margin
         max_words_per_line: Maximum words per line
         max_width: Maximum width of text
+        back_color: Background color of the subtitle box
     """
     try:
         # Import PyThaiNLP for better Thai word segmentation
@@ -204,13 +205,26 @@ def convert_srt_to_ass_for_thai(srt_path, ass_path, font_name, font_size,
             else:
                 outline_color_hex = "&H000000FF"  # Default to black
             
+            # For back color
+            if back_color.startswith("&H"):
+                back_color_hex = back_color
+            elif back_color.lower() == "black":
+                back_color_hex = "&H80000000"  # Semi-transparent black
+            elif back_color.lower() == "red":
+                back_color_hex = "&H800000FF"  # Semi-transparent red
+            elif back_color.lower() == "blue":
+                back_color_hex = "&H80FF0000"  # Semi-transparent blue
+            elif back_color.lower() == "green":
+                back_color_hex = "&H8000FF00"  # Semi-transparent green
+            elif back_color.lower() == "transparent":
+                back_color_hex = "&H00000000"  # Fully transparent
+            
             # Adjust font size based on video dimensions and orientation
             adjusted_font_size = int(font_size * 1.5)
             
-            # Use a completely transparent background (&H00000000) to avoid black box issues
             # Increase outline width to 2 for better visibility
             # Set BorderStyle=3 for opaque box with 15% opacity for better readability
-            f.write(f"Style: Default,{font_name},{adjusted_font_size},{primary_color_hex},&H0000FFFF,{outline_color_hex},&H20000000,1,0,0,0,100,100,0,0,3,2,0,{alignment},20,20,{margin_v},1\n\n")
+            f.write(f"Style: Default,{font_name},{adjusted_font_size},{primary_color_hex},&H0000FFFF,{outline_color_hex},{back_color_hex},1,0,0,0,100,100,0,0,3,2,0,{alignment},20,20,{margin_v},1\n\n")
             
             # Write events
             f.write("[Events]\n")
@@ -551,7 +565,8 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, font_nam
             align_param, 
             margin_v,
             max_words_per_line,
-            max_width
+            max_width,
+            back_color
         )
         
         # Properly escape the subtitle path for Windows
@@ -1159,6 +1174,7 @@ def process_captioning_v1(video_url, captions, settings=None, job_id=None, webho
         italic = settings.get('italic', False)
         underline = settings.get('underline', False)
         strikeout = settings.get('strikeout', False)
+        back_color = settings.get('back_color', None)
         
         # Special handling for Thai text
         if contains_thai(subtitle_path):
@@ -1203,6 +1219,7 @@ def process_captioning_v1(video_url, captions, settings=None, job_id=None, webho
             italic=italic,
             underline=underline,
             strikeout=strikeout,
+            back_color=back_color,
             job_id=job_id
         )
         

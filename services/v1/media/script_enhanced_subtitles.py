@@ -193,64 +193,61 @@ def align_thai_text(script_text: str, subtitles: List[srt.Subtitle]) -> List[srt
         best_pos = script_pos
         
         # Try different window sizes around the current position
-        window_size = max(len(sub_content) * 5, 100)  # Larger window for Thai
+        # Use a larger window for better context
+        window_size = max(len(sub_content) * 10, 200)  # Increased window size
         start_pos = max(0, script_pos - window_size)
         end_pos = min(len(script_text), script_pos + len(sub_content) + window_size)
         
         search_text = script_text[start_pos:end_pos]
         
-        # Use difflib to find the best match with improved algorithm
-        matcher = difflib.SequenceMatcher(None, sub_content, search_text)
-        match = matcher.find_longest_match(0, len(sub_content), 0, len(search_text))
+        # Use a combination of approaches for better matching
         
-        if match.size > 0:
-            # Calculate the actual position in the full script
-            match_pos = start_pos + match.b
+        # 1. First try exact matching for short segments
+        if len(sub_content) < 20:
+            exact_match_pos = search_text.find(sub_content)
+            if exact_match_pos >= 0:
+                best_match = sub_content
+                best_score = 1.0
+                best_pos = start_pos + exact_match_pos
+        
+        # 2. If no exact match, use difflib with higher threshold
+        if not best_match:
+            # Use difflib to find the best match with improved algorithm
+            matcher = difflib.SequenceMatcher(None, sub_content, search_text)
+            match = matcher.find_longest_match(0, len(sub_content), 0, len(search_text))
             
-            # Expand the match to include complete Thai words/phrases
-            expanded_start = match_pos
-            expanded_end = match_pos + match.size
+            if match.size > 0:
+                match_score = match.size / len(sub_content)
+                if match_score > 0.5:  # Increased threshold from default
+                    best_match = search_text[match.b:match.b + match.size]
+                    best_score = match_score
+                    best_pos = start_pos + match.b
+        
+        # 3. If still no good match, try word-level matching
+        if not best_match or best_score < 0.7:
+            # Try matching individual words
+            best_word_matches = []
+            for word in segmented_sub:
+                if word in search_text:
+                    word_pos = search_text.find(word)
+                    best_word_matches.append((word, start_pos + word_pos))
             
-            # Thai sentence boundary markers
-            thai_sentence_markers = ['.', '!', '?', '\n', '।', '॥', '।', '॥', '।', '॥', '।', '॥', '।', '॥', '。', '？', '！', '।', '॥']
-            
-            # Expand backwards to sentence boundary or reasonable limit
-            max_backward_expansion = 50  # Limit backward expansion
-            backward_count = 0
-            while expanded_start > 0 and script_text[expanded_start-1] not in thai_sentence_markers and backward_count < max_backward_expansion:
-                expanded_start -= 1
-                backward_count += 1
-                
-            # Expand forwards to sentence boundary or reasonable limit
-            max_forward_expansion = 50  # Limit forward expansion
-            forward_count = 0
-            while expanded_end < len(script_text) and script_text[expanded_end] not in thai_sentence_markers and forward_count < max_forward_expansion:
-                expanded_end += 1
-                forward_count += 1
-            
-            # Get the expanded match
-            expanded_match = script_text[expanded_start:expanded_end]
-            
-            # Ensure we have complete Thai words by using PyThaiNLP to tokenize
-            if PYTHAINLP_AVAILABLE:
-                try:
-                    # Tokenize the expanded match
-                    words = word_tokenize(expanded_match, engine="newmm")
+            if best_word_matches:
+                # Use the script text between the first and last matched word
+                if len(best_word_matches) > 1:
+                    first_match = min(best_word_matches, key=lambda x: x[1])
+                    last_match = max(best_word_matches, key=lambda x: x[1])
+                    first_pos = first_match[1]
+                    last_pos = last_match[1] + len(last_match[0])
                     
-                    # Rejoin the words to ensure we have complete Thai words
-                    best_match = "".join(words)
-                except Exception as e:
-                    logger.warning(f"Error tokenizing Thai text: {str(e)}")
-                    best_match = expanded_match
-            else:
-                best_match = expanded_match
-            
-            best_pos = expanded_start
-            best_score = match.size / len(sub_content) if len(sub_content) > 0 else 0
+                    if last_pos - first_pos < len(sub_content) * 2:  # Reasonable length check
+                        best_match = script_text[first_pos:last_pos]
+                        best_score = 0.8  # Consider this a good match
+                        best_pos = first_pos
         
         # If we found a good match, use it
-        if best_score > 0.4:  # Lower threshold for Thai to catch more matches
-            # Create a new subtitle with the matched text
+        if best_match and best_score >= 0.5:
+            # Create a new subtitle with the matched script text but keep the timing
             new_sub = srt.Subtitle(
                 index=sub.index,
                 start=sub.start,
@@ -258,27 +255,26 @@ def align_thai_text(script_text: str, subtitles: List[srt.Subtitle]) -> List[srt
                 content=best_match
             )
             aligned_subtitles.append(new_sub)
+            
+            # Update the position for the next search
             script_pos = best_pos + len(best_match)
         else:
-            # If no good match, keep the original subtitle
-            aligned_subtitles.append(sub)
-            # Don't advance script_pos in this case
-    
-    # Post-process subtitles to ensure they don't overlap
-    processed_subtitles = []
-    for i, sub in enumerate(aligned_subtitles):
-        if i > 0 and sub.start < processed_subtitles[i-1].end:
-            # Adjust start time to avoid overlap
-            sub.start = processed_subtitles[i-1].end + timedelta(milliseconds=100)
+            # If no good match found, keep the original subtitle
+            # But try to clean it up a bit
+            cleaned_content = sub_content
+            # Remove common hallucination patterns
+            cleaned_content = re.sub(r'minecraft', '', cleaned_content)
+            cleaned_content = re.sub(r'and\s*$', '', cleaned_content)
             
-            # If this makes the subtitle too short, adjust the end time
-            min_duration = timedelta(seconds=1)  # Minimum 1 second duration
-            if sub.end - sub.start < min_duration:
-                sub.end = sub.start + min_duration
-        
-        processed_subtitles.append(sub)
+            new_sub = srt.Subtitle(
+                index=sub.index,
+                start=sub.start,
+                end=sub.end,
+                content=cleaned_content
+            )
+            aligned_subtitles.append(new_sub)
     
-    return processed_subtitles
+    return aligned_subtitles
 
 def align_standard_text(script_text: str, subtitles: List[srt.Subtitle]) -> List[srt.Subtitle]:
     """
