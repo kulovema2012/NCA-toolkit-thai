@@ -364,30 +364,58 @@ def enhance_subtitles_from_segments(script_text: str, segments: List[Dict], outp
     """
     logger.info(f"Enhancing subtitles from {len(segments)} segments")
     
-    # Convert segments to SRT format
+    # Group segments to create fewer, longer subtitles
+    # This reduces the chaotic feeling of subtitles changing too quickly
+    grouped_segments = []
+    current_group = None
+    
+    # Define a maximum duration for a subtitle (in seconds)
+    MAX_SUBTITLE_DURATION = 5.0
+    
+    for segment in segments:
+        # Apply minimum start time
+        start_seconds = max(segment['start'], min_start_time)
+        end_seconds = segment['end']
+        
+        # If this is the first segment or if the current group has reached max duration
+        if current_group is None or (end_seconds - current_group['start'] > MAX_SUBTITLE_DURATION):
+            # Start a new group
+            current_group = {
+                'start': start_seconds,
+                'end': end_seconds,
+                'text': segment['text']
+            }
+            grouped_segments.append(current_group)
+        else:
+            # Extend the current group
+            current_group['end'] = end_seconds
+            current_group['text'] += " " + segment['text']
+    
+    logger.info(f"Grouped {len(segments)} segments into {len(grouped_segments)} longer subtitles")
+    
+    # Convert grouped segments to SRT format
     subtitles = []
     
-    # Process segments to extend durations and ensure better synchronization
-    for i, segment in enumerate(segments):
+    # Process grouped segments to ensure better synchronization
+    for i, segment in enumerate(grouped_segments):
         # Apply minimum start time to all segments
         start_seconds = max(segment['start'], min_start_time)
         
-        # PRE-DISPLAY BUFFER: Show subtitles 0.5 seconds BEFORE the voice actually starts
-        # This helps with synchronization perception
-        pre_display_buffer = 0.5
+        # PRE-DISPLAY BUFFER: Show subtitles 0.3 seconds BEFORE the voice actually starts
+        # Reduced from 0.5 to 0.3 to minimize overlap confusion
+        pre_display_buffer = 0.3
         start_seconds = max(start_seconds - pre_display_buffer, min_start_time)
         
-        # Calculate end time - extend duration by 50% to keep subtitles on screen longer
-        # This helps with synchronization between voice-over and subtitles
+        # Calculate end time - extend duration slightly to keep subtitles on screen longer
+        # But not too much to avoid excessive overlap
         duration = segment['end'] - segment['start']
-        extended_duration = duration * 1.5  # Extend by 50% (increased from 30%)
+        extended_duration = duration * 1.2  # Extend by 20% (reduced from 50%)
         
-        # If this is not the last segment, make sure we don't overlap with the next segment
-        # But allow for some overlap to ensure continuous text display
-        if i < len(segments) - 1:
-            next_start = segments[i+1]['start']
-            # Allow for a small overlap between segments (0.3 seconds)
-            end_seconds = min(start_seconds + extended_duration, next_start + 0.3)
+        # If this is not the last segment, make sure we don't overlap too much with the next segment
+        if i < len(grouped_segments) - 1:
+            next_start = grouped_segments[i+1]['start']
+            # Reduce overlap to just 0.1 seconds to minimize confusion
+            end_seconds = min(start_seconds + extended_duration, next_start + 0.1)
         else:
             end_seconds = start_seconds + extended_duration
         

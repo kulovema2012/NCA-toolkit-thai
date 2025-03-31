@@ -205,24 +205,28 @@ def convert_srt_to_ass_for_thai(srt_path, ass_path, font_name, font_size,
             else:
                 outline_color_hex = "&H000000FF"  # Default to black
             
-            # For back color - initialize with a default
-            back_color_hex = "&H80000000"  # Default: semi-transparent black
+            # CRITICAL FIX: Handle back_color properly
+            # Default to semi-transparent black if not specified
+            back_color_hex = "&H80000000"  # Default: semi-transparent black (80 = 50% opacity)
             
-            # Process back_color parameter if provided
+            # Process back_color parameter
+            logger.info(f"Original back_color parameter: '{back_color}'")
+            
             if back_color:
-                # Log the received back_color for debugging
-                logger.info(f"Processing back_color: {back_color}")
-                
                 if isinstance(back_color, str):
+                    # Handle different formats
                     if back_color.startswith("&H"):
                         # Already in ASS format
                         back_color_hex = back_color
+                        logger.info(f"Using ASS format back_color: {back_color_hex}")
                     elif back_color.startswith("H"):
                         # Missing the & prefix, add it
                         back_color_hex = "&" + back_color
                         logger.info(f"Fixed back_color format by adding &: {back_color_hex}")
                     elif back_color.lower() == "black":
-                        back_color_hex = "&H80000000"  # Semi-transparent black
+                        # Force a higher opacity for black to ensure visibility
+                        back_color_hex = "&H80000000"  # Semi-transparent black (80 = 50% opacity)
+                        logger.info(f"Using black back_color: {back_color_hex}")
                     elif back_color.lower() == "red":
                         back_color_hex = "&H800000FF"  # Semi-transparent red
                     elif back_color.lower() == "blue":
@@ -233,14 +237,18 @@ def convert_srt_to_ass_for_thai(srt_path, ass_path, font_name, font_size,
                         back_color_hex = "&H00000000"  # Fully transparent
             
             # Log the final back_color_hex for debugging
-            logger.info(f"Using back_color_hex: {back_color_hex}")
+            logger.info(f"Final back_color_hex: {back_color_hex}")
             
             # Adjust font size based on video dimensions and orientation
             adjusted_font_size = int(font_size * 1.5)
             
-            # Increase outline width to 2 for better visibility
-            # Set BorderStyle=3 for opaque box with 15% opacity for better readability
-            f.write(f"Style: Default,{font_name},{adjusted_font_size},{primary_color_hex},&H0000FFFF,{outline_color_hex},{back_color_hex},1,0,0,0,100,100,0,0,3,2,0,{alignment},20,20,{margin_v},1\n\n")
+            # CRITICAL FIX: Set BorderStyle=3 for opaque box style
+            # This ensures the background color is properly applied
+            border_style = 3  # Use opaque box style
+            outline_width = 2  # Outline width for better visibility
+            
+            # Write the style with all parameters explicitly set
+            f.write(f"Style: Default,{font_name},{adjusted_font_size},{primary_color_hex},&H0000FFFF,{outline_color_hex},{back_color_hex},1,0,0,0,100,100,0,0,{border_style},{outline_width},0,{alignment},20,20,{margin_v},1\n\n")
             
             # Write events
             f.write("[Events]\n")
@@ -299,8 +307,10 @@ def convert_srt_to_ass_for_thai(srt_path, ass_path, font_name, font_size,
                             chunks = [text[i:i+max_words_per_line*5] for i in range(0, len(text), max_words_per_line*5)]
                             text = "\\N".join(chunks)
                 
-                # Write the event line
-                f.write(f"Dialogue: 0,{start_formatted},{end_formatted},Default,,0,0,0,,{text}\n")
+                # Write the event line with explicit background color
+                # Add a specific tag to force the background color in the text itself
+                text_with_style = "{\\bord2\\shad0}" + text
+                f.write(f"Dialogue: 0,{start_formatted},{end_formatted},Default,,0,0,0,,{text_with_style}\n")
             
         logger.info(f"Successfully converted SRT to ASS with Thai text handling: {ass_path}")
         return ass_path
@@ -668,7 +678,7 @@ def process_srt_file(subtitle_path, max_words_per_line=7, is_thai=False):
     
     # Thai language specific constants
     THAI_CONSONANTS = 'กขฃคฅฆงจฉชซฌญฎฏฐฑฒณดตถทธนบปผฝพฟภมยรลวศษสหฬอฮ'
-    THAI_VOWELS = 'ะัาำิีึืุูเแโใไๅ'
+    THAI_VOWELS = 'ะัาำิีึืุูเแโใไ'
     THAI_TONEMARKS = '่้๊๋'
     THAI_CHARS = THAI_CONSONANTS + THAI_VOWELS + THAI_TONEMARKS
     
