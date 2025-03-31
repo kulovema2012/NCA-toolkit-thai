@@ -251,10 +251,10 @@ def convert_srt_to_ass_for_thai(srt_path, ass_path, font_name, font_size,
                             # Fall back to default black
                             back_color_hex = "&H80000000"
             
-            # FORCE BLACK BACKGROUND if we detect it's still red
-            if "00FF" in back_color_hex:
-                logger.warning("Detected red component in background color, forcing black instead")
-                back_color_hex = "&H80000000"  # Semi-transparent black
+            # FORCE BLACK BACKGROUND - this is critical to prevent red background
+            # The original code might be using a different color format, so we'll force black here
+            back_color_hex = "&H80000000"  # Semi-transparent black
+            logger.warning("Forcing black background color to ensure proper display")
             
             # Log the final back_color_hex for debugging
             logger.info(f"Final back_color_hex: {back_color_hex}")
@@ -262,12 +262,13 @@ def convert_srt_to_ass_for_thai(srt_path, ass_path, font_name, font_size,
             # Adjust font size based on video dimensions and orientation
             adjusted_font_size = int(font_size * 1.5)
             
-            # CRITICAL FIX: Set BorderStyle=3 for opaque box style
+            # CRITICAL FIX: Set BorderStyle=4 for opaque box style with specific margins
             # This ensures the background color is properly applied
-            border_style = 3  # Use opaque box style
+            border_style = 4  # Use opaque box style with specific margins
             outline_width = 2  # Outline width for better visibility
             
             # Write the style with all parameters explicitly set
+            # Note: For Thai subtitles, we're using a more compatible style format
             f.write(f"Style: Default,{font_name},{adjusted_font_size},{primary_color_hex},&H0000FFFF,{outline_color_hex},{back_color_hex},1,0,0,0,100,100,0,0,{border_style},{outline_width},0,{alignment},20,20,{margin_v},1\n\n")
             
             # Write events
@@ -297,12 +298,17 @@ def convert_srt_to_ass_for_thai(srt_path, ass_path, font_name, font_size,
                             # Log the number of words for debugging
                             logger.info(f"Thai text tokenized into {len(words)} words with max_words_per_line={max_words_per_line}")
                             
-                            # If the number of words is less than max_words_per_line, no need to split
-                            if len(words) <= max_words_per_line:
+                            # Calculate optimal words per line based on video dimensions
+                            # For Thai, we'll use a more conservative approach to ensure readability
+                            optimal_words_per_line = max(10, min(max_words_per_line, 20))  # Between 10 and 20 words
+                            logger.info(f"Using optimal_words_per_line={optimal_words_per_line}")
+                            
+                            # If the number of words is less than optimal_words_per_line, no need to split
+                            if len(words) <= optimal_words_per_line:
                                 # Just use the text as is
-                                logger.info(f"Text has fewer words ({len(words)}) than max_words_per_line ({max_words_per_line}), no splitting needed")
+                                logger.info(f"Text has fewer words ({len(words)}) than optimal_words_per_line ({optimal_words_per_line}), no splitting needed")
                             else:
-                                # Group words into lines based on max_words_per_line
+                                # Group words into lines based on optimal_words_per_line
                                 lines = []
                                 current_line = []
                                 word_count = 0
@@ -311,7 +317,7 @@ def convert_srt_to_ass_for_thai(srt_path, ass_path, font_name, font_size,
                                     current_line.append(word)
                                     word_count += 1
                                     
-                                    if word_count >= max_words_per_line:
+                                    if word_count >= optimal_words_per_line:
                                         lines.append("".join(current_line))
                                         current_line = []
                                         word_count = 0
@@ -322,26 +328,46 @@ def convert_srt_to_ass_for_thai(srt_path, ass_path, font_name, font_size,
                                 
                                 # Join lines with newline character
                                 text = "\\N".join(lines)
-                                logger.info(f"Applied max_words_per_line={max_words_per_line}, resulting in {len(lines)} lines")
-                        except Exception as e:
-                            logger.error(f"Error in Thai word segmentation with PyThaiNLP: {str(e)}")
-                            # Fall back to simple character-based segmentation
-                            chars_per_line = max_words_per_line * 5  # Rough estimate for Thai characters
-                            if len(text) > chars_per_line:
-                                chunks = [text[i:i+chars_per_line] for i in range(0, len(text), chars_per_line)]
-                                text = "\\N".join(chunks)
-                                logger.info(f"Fallback: Split text into {len(chunks)} chunks based on character count")
-                    else:
-                        # Simple character-based segmentation as fallback
-                        chars_per_line = max_words_per_line * 5  # Rough estimate for Thai characters
-                        if len(text) > chars_per_line:
-                            chunks = [text[i:i+chars_per_line] for i in range(0, len(text), chars_per_line)]
-                            text = "\\N".join(chunks)
-                            logger.info(f"No PyThaiNLP: Split text into {len(chunks)} chunks based on character count")
-                
-                # Write the event line with explicit background color
-                # Add a specific tag to force the background color in the text itself
-                text_with_style = "{\\bord2\\shad0}" + text
+                                logger.info(f"Applied optimal_words_per_line={optimal_words_per_line}, resulting in {len(lines)} lines")
+                        except ImportError:
+                            # Fallback to character-based splitting
+                            if len(text) > 25:
+                                lines = []
+                                # Try to split at spaces or punctuation
+                                split_points = [m.start() for m in re.finditer(r'[.,!?;: ]', text)]
+                                
+                                current_pos = 0
+                                while current_pos < len(text):
+                                    # Find the best split point within the character limit
+                                    end_pos = min(current_pos + 25, len(text))
+                                    
+                                    # Look for a good split point
+                                    good_splits = [p for p in split_points if p > current_pos and p < end_pos]
+                                    
+                                    if good_splits:
+                                        # Use the last good split point
+                                        split_at = max(good_splits)
+                                        lines.append(text[current_pos:split_at].strip())
+                                        current_pos = split_at
+                                    else:
+                                        # No good split point, just use the max length
+                                        lines.append(text[current_pos:end_pos].strip())
+                                        current_pos = end_pos
+                        
+                        text = '\n'.join(lines)
+                else:
+                    # For non-Thai text, split by words
+                    words = text.split()
+                    if len(words) > max_words_per_line:
+                        lines = []
+                        for j in range(0, len(words), max_words_per_line):
+                            line = ' '.join(words[j:j+max_words_per_line])
+                            lines.append(line)
+                        text = '\n'.join(lines)
+            
+                # Write the event line with explicit background color and style overrides
+                # Use specific ASS override tags to ensure proper display
+                text_with_style = "{\\bord2\\shad0\\3c&H000000&\\4c&H000000&}" + text
                 f.write(f"Dialogue: 0,{start_formatted},{end_formatted},Default,,0,0,0,,{text_with_style}\n")
             
         logger.info(f"Successfully converted SRT to ASS with Thai text handling: {ass_path}")
@@ -497,7 +523,7 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, font_nam
         with open(subtitle_path, 'r', encoding='utf-8-sig') as f:
             content = f.read()
             # Check for Thai characters
-            thai_chars = 'กขฃคฅฆงจฉชซฌญฎฏฐฑฒณดตถทธนบปผฝพฟภมยรลวศษสหฬอฮะัาำิีึืุูเแโใไๅ่้๊๋'
+            thai_chars = 'กขฃคฅฆงจฉชซฌญฎฏฐฑฒณดตถทธนบปผฝพฟภมยรลวศษสหฬอฮะัาำิีึืุูเแโใไ'
             is_thai = any(c in thai_chars for c in content)
             logger.info(f"Detected {'Thai' if is_thai else 'non-Thai'} subtitles")
     except Exception as e:
