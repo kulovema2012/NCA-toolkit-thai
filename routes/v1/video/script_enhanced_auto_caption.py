@@ -122,6 +122,32 @@ def script_enhanced_auto_caption():
         elif "style" in settings_obj and "back_color" in settings_obj["style"]:
             styling_params["back_color"] = settings_obj["style"]["back_color"]
             logger.info(f"Found back_color in settings.style: {styling_params['back_color']}")
+        else:
+            # Default to black background if not specified
+            styling_params["back_color"] = "&H80000000"  # Semi-transparent black
+            logger.info("No back_color specified, defaulting to semi-transparent black")
+        
+        # Ensure max_words_per_line is properly passed through
+        if "max_words_per_line" in styling_params:
+            logger.info(f"Found max_words_per_line in request: {styling_params['max_words_per_line']}")
+        elif "style" in settings_obj and "max_words_per_line" in settings_obj["style"]:
+            styling_params["max_words_per_line"] = settings_obj["style"]["max_words_per_line"]
+            logger.info(f"Found max_words_per_line in settings.style: {styling_params['max_words_per_line']}")
+        else:
+            # Default to a reasonable value for Thai
+            styling_params["max_words_per_line"] = 15
+            logger.info("No max_words_per_line specified, defaulting to 15")
+        
+        # Ensure subtitle_style is properly passed through
+        if "subtitle_style" in styling_params:
+            logger.info(f"Found subtitle_style in request: {styling_params['subtitle_style']}")
+        elif "style" in settings_obj and "subtitle_style" in settings_obj["style"]:
+            styling_params["subtitle_style"] = settings_obj["style"]["subtitle_style"]
+            logger.info(f"Found subtitle_style in settings.style: {styling_params['subtitle_style']}")
+        else:
+            # Default to modern style
+            styling_params["subtitle_style"] = "modern"
+            logger.info("No subtitle_style specified, defaulting to modern")
         
         # Log the extracted styling parameters
         logger.info(f"Extracted styling parameters: {styling_params}")
@@ -182,9 +208,6 @@ def process_script_enhanced_auto_caption(video_url, script_text, language, setti
     # Create a temporary directory for processing
     temp_dir = os.path.join(tempfile.gettempdir(), f"script_enhanced_auto_caption_{job_id}")
     os.makedirs(temp_dir, exist_ok=True)
-    
-    # Create subdirectories
-    os.makedirs(os.path.join(temp_dir, "transcription"), exist_ok=True)
     
     logger.info(f"Job {job_id}: Created temporary directory: {temp_dir}")
     

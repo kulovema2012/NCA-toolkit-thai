@@ -235,6 +235,26 @@ def convert_srt_to_ass_for_thai(srt_path, ass_path, font_name, font_size,
                         back_color_hex = "&H8000FF00"  # Semi-transparent green
                     elif back_color.lower() == "transparent":
                         back_color_hex = "&H00000000"  # Fully transparent
+                    else:
+                        # Try to handle hex color codes like "#000000" for black
+                        try:
+                            if back_color.startswith("#"):
+                                # Convert HTML/CSS hex color to ASS format
+                                color = back_color.lstrip("#")
+                                if len(color) == 6:
+                                    r, g, b = int(color[0:2], 16), int(color[2:4], 16), int(color[4:6], 16)
+                                    # ASS format is &HAABBGGRR (AA=alpha, BB=blue, GG=green, RR=red)
+                                    back_color_hex = f"&H80{b:02X}{g:02X}{r:02X}"
+                                    logger.info(f"Converted HTML color {back_color} to ASS format: {back_color_hex}")
+                        except Exception as e:
+                            logger.error(f"Error converting color {back_color}: {str(e)}")
+                            # Fall back to default black
+                            back_color_hex = "&H80000000"
+            
+            # FORCE BLACK BACKGROUND if we detect it's still red
+            if "00FF" in back_color_hex:
+                logger.warning("Detected red component in background color, forcing black instead")
+                back_color_hex = "&H80000000"  # Semi-transparent black
             
             # Log the final back_color_hex for debugging
             logger.info(f"Final back_color_hex: {back_color_hex}")
@@ -274,38 +294,50 @@ def convert_srt_to_ass_for_thai(srt_path, ass_path, font_name, font_size,
                             # Tokenize the text into words
                             words = word_tokenize(text, engine="newmm")
                             
-                            # Group words into lines based on max_words_per_line
-                            lines = []
-                            current_line = []
-                            word_count = 0
+                            # Log the number of words for debugging
+                            logger.info(f"Thai text tokenized into {len(words)} words with max_words_per_line={max_words_per_line}")
                             
-                            for word in words:
-                                current_line.append(word)
-                                word_count += 1
+                            # If the number of words is less than max_words_per_line, no need to split
+                            if len(words) <= max_words_per_line:
+                                # Just use the text as is
+                                logger.info(f"Text has fewer words ({len(words)}) than max_words_per_line ({max_words_per_line}), no splitting needed")
+                            else:
+                                # Group words into lines based on max_words_per_line
+                                lines = []
+                                current_line = []
+                                word_count = 0
                                 
-                                if word_count >= max_words_per_line:
+                                for word in words:
+                                    current_line.append(word)
+                                    word_count += 1
+                                    
+                                    if word_count >= max_words_per_line:
+                                        lines.append("".join(current_line))
+                                        current_line = []
+                                        word_count = 0
+                                
+                                # Add any remaining words
+                                if current_line:
                                     lines.append("".join(current_line))
-                                    current_line = []
-                                    word_count = 0
-                            
-                            # Add any remaining words
-                            if current_line:
-                                lines.append("".join(current_line))
-                            
-                            # Join lines with newline character
-                            text = "\\N".join(lines)
-                            logger.info(f"Applied max_words_per_line={max_words_per_line}, resulting in {len(lines)} lines")
+                                
+                                # Join lines with newline character
+                                text = "\\N".join(lines)
+                                logger.info(f"Applied max_words_per_line={max_words_per_line}, resulting in {len(lines)} lines")
                         except Exception as e:
                             logger.error(f"Error in Thai word segmentation with PyThaiNLP: {str(e)}")
                             # Fall back to simple character-based segmentation
-                            if len(text) > max_words_per_line * 5:  # Rough estimate for Thai characters
-                                chunks = [text[i:i+max_words_per_line*5] for i in range(0, len(text), max_words_per_line*5)]
+                            chars_per_line = max_words_per_line * 5  # Rough estimate for Thai characters
+                            if len(text) > chars_per_line:
+                                chunks = [text[i:i+chars_per_line] for i in range(0, len(text), chars_per_line)]
                                 text = "\\N".join(chunks)
+                                logger.info(f"Fallback: Split text into {len(chunks)} chunks based on character count")
                     else:
                         # Simple character-based segmentation as fallback
-                        if len(text) > max_words_per_line * 5:  # Rough estimate for Thai characters
-                            chunks = [text[i:i+max_words_per_line*5] for i in range(0, len(text), max_words_per_line*5)]
+                        chars_per_line = max_words_per_line * 5  # Rough estimate for Thai characters
+                        if len(text) > chars_per_line:
+                            chunks = [text[i:i+chars_per_line] for i in range(0, len(text), chars_per_line)]
                             text = "\\N".join(chunks)
+                            logger.info(f"No PyThaiNLP: Split text into {len(chunks)} chunks based on character count")
                 
                 # Write the event line with explicit background color
                 # Add a specific tag to force the background color in the text itself

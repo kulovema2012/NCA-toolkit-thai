@@ -350,105 +350,99 @@ def align_standard_text(script_text: str, subtitles: List[srt.Subtitle]) -> List
 def enhance_subtitles_from_segments(script_text: str, segments: List[Dict], output_srt_path: str, upload_to_cloud: bool = True, min_start_time: float = 0.0) -> Union[str, Dict[str, str]]:
     """
     Create enhanced subtitles from transcription segments and a script.
+    This function will group segments to reduce the number of subtitles and improve synchronization.
     
     Args:
-        script_text: The voice-over script text (accurate text)
-        segments: List of transcription segments from Whisper
-        output_srt_path: Path to save the enhanced SRT file
-        upload_to_cloud: Whether to upload the SRT file to cloud storage (default: True)
-        min_start_time: Minimum start time for all subtitles (in seconds)
-        
-    Returns:
-        If upload_to_cloud is True: Dict with local_path and cloud_url of the enhanced SRT file
-        If upload_to_cloud is False: Path to the enhanced SRT file (local path)
-    """
-    logger.info(f"Enhancing subtitles from {len(segments)} segments")
+        script_text (str): The script text
+        segments (List[Dict]): List of transcription segments with start, end, and text
+        output_srt_path (str): Path to save the SRT file
+        upload_to_cloud (bool): Whether to upload the SRT file to cloud storage
+        min_start_time (float): Minimum start time for subtitles
     
-    # Group segments to create fewer, longer subtitles
-    # This reduces the chaotic feeling of subtitles changing too quickly
+    Returns:
+        str: Path to the SRT file
+    """
+    logger.info(f"Enhancing subtitles from {len(segments)} segments with script text of length {len(script_text)}")
+    
+    # Group segments to reduce the number of subtitles
     grouped_segments = []
     current_group = None
     
-    # Define a maximum duration for a subtitle (in seconds)
-    MAX_SUBTITLE_DURATION = 5.0
+    # Parameters for subtitle grouping and timing
+    min_segment_duration = 1.0  # Minimum duration for a subtitle in seconds
+    max_segment_duration = 7.0  # Maximum duration for a subtitle in seconds
+    pre_display_buffer = 0.3    # Show subtitle this many seconds before voice starts
+    duration_extension_factor = 0.2  # Extend duration by this factor
+    min_gap_between_segments = 0.1  # Minimum gap between segments in seconds
+    
+    # Sort segments by start time to ensure proper ordering
+    segments = sorted(segments, key=lambda x: x["start"])
     
     for segment in segments:
-        # Apply minimum start time
-        start_seconds = max(segment['start'], min_start_time)
-        end_seconds = segment['end']
+        # Skip segments with empty text
+        if not segment["text"].strip():
+            continue
+            
+        start_time = max(segment["start"] - pre_display_buffer, min_start_time)
+        end_time = segment["end"] * (1 + duration_extension_factor)  # Extend duration
         
-        # If this is the first segment or if the current group has reached max duration
-        if current_group is None or (end_seconds - current_group['start'] > MAX_SUBTITLE_DURATION):
-            # Start a new group
+        # Ensure minimum segment duration
+        if end_time - start_time < min_segment_duration:
+            end_time = start_time + min_segment_duration
+            
+        # Ensure maximum segment duration
+        if end_time - start_time > max_segment_duration:
+            end_time = start_time + max_segment_duration
+        
+        # If this is the first segment or there's a significant gap, start a new group
+        if current_group is None or start_time > current_group["end"] + min_gap_between_segments:
+            if current_group is not None:
+                grouped_segments.append(current_group)
+            
             current_group = {
-                'start': start_seconds,
-                'end': end_seconds,
-                'text': segment['text']
+                "start": start_time,
+                "end": end_time,
+                "text": segment["text"],
+                "original_segments": [segment]
             }
-            grouped_segments.append(current_group)
         else:
-            # Extend the current group
-            current_group['end'] = end_seconds
-            current_group['text'] += " " + segment['text']
+            # Otherwise, extend the current group
+            current_group["end"] = max(current_group["end"], end_time)
+            current_group["text"] += " " + segment["text"]
+            current_group["original_segments"].append(segment)
     
-    logger.info(f"Grouped {len(segments)} segments into {len(grouped_segments)} longer subtitles")
+    # Add the last group if it exists
+    if current_group is not None:
+        grouped_segments.append(current_group)
     
-    # Convert grouped segments to SRT format
-    subtitles = []
+    logger.info(f"Grouped {len(segments)} segments into {len(grouped_segments)} subtitle groups")
     
-    # Process grouped segments to ensure better synchronization
-    for i, segment in enumerate(grouped_segments):
-        # Apply minimum start time to all segments
-        start_seconds = max(segment['start'], min_start_time)
-        
-        # PRE-DISPLAY BUFFER: Show subtitles 0.3 seconds BEFORE the voice actually starts
-        # Reduced from 0.5 to 0.3 to minimize overlap confusion
-        pre_display_buffer = 0.3
-        start_seconds = max(start_seconds - pre_display_buffer, min_start_time)
-        
-        # Calculate end time - extend duration slightly to keep subtitles on screen longer
-        # But not too much to avoid excessive overlap
-        duration = segment['end'] - segment['start']
-        extended_duration = duration * 1.2  # Extend by 20% (reduced from 50%)
-        
-        # If this is not the last segment, make sure we don't overlap too much with the next segment
-        if i < len(grouped_segments) - 1:
-            next_start = grouped_segments[i+1]['start']
-            # Reduce overlap to just 0.1 seconds to minimize confusion
-            end_seconds = min(start_seconds + extended_duration, next_start + 0.1)
-        else:
-            end_seconds = start_seconds + extended_duration
-        
-        # Create timedelta objects for SRT
-        start_time = timedelta(seconds=start_seconds)
-        end_time = timedelta(seconds=end_seconds)
-        
-        subtitles.append(
-            srt.Subtitle(
-                index=i+1,
-                start=start_time,
-                end=end_time,
-                content=segment['text']
-            )
+    # Create SRT file from grouped segments
+    srt_subtitles = []
+    
+    for i, group in enumerate(grouped_segments):
+        # Create a subtitle with the grouped text
+        subtitle = srt.Subtitle(
+            index=i+1,
+            start=datetime.timedelta(seconds=group["start"]),
+            end=datetime.timedelta(seconds=group["end"]),
+            content=group["text"].strip()
         )
+        srt_subtitles.append(subtitle)
     
-    # Create a temporary SRT file
-    temp_srt_path = output_srt_path.replace('.srt', '_temp.srt')
-    with open(temp_srt_path, 'w', encoding='utf-8') as f:
-        f.write(srt.compose(subtitles))
+    # Write SRT file
+    with open(output_srt_path, 'w', encoding='utf-8') as f:
+        f.write(srt.compose(srt_subtitles))
     
-    # Align the script with the subtitles
-    enhanced_result = align_script_with_subtitles(
-        script_text, 
-        temp_srt_path, 
-        output_srt_path,
-        upload_to_cloud=upload_to_cloud
-    )
+    logger.info(f"Created SRT file with {len(srt_subtitles)} subtitles at {output_srt_path}")
     
-    # Clean up the temporary file
-    try:
-        os.remove(temp_srt_path)
-    except:
-        pass
+    # Upload to cloud if requested
+    if upload_to_cloud and output_srt_path.startswith('/tmp'):
+        try:
+            cloud_path = upload_file_to_cloud(output_srt_path)
+            logger.info(f"Uploaded SRT file to cloud: {cloud_path}")
+            return cloud_path
+        except Exception as e:
+            logger.error(f"Failed to upload SRT file to cloud: {str(e)}")
     
-    return enhanced_result
+    return output_srt_path
