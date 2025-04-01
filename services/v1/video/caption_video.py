@@ -134,49 +134,32 @@ def cache_result(func):
     
     return wrapper
 
-def convert_srt_to_ass_for_thai(srt_path, ass_path, font_name, font_size, 
-                              primary_color="white", outline_color="black", 
-                              alignment=2, margin_v=20, max_words_per_line=7, max_width=None, back_color="black"):
+def convert_srt_to_ass_for_thai(srt_path, font_name=None, font_size=24, primary_color="white", outline_color="black", back_color=None, alignment=2, margin_v=30, max_words_per_line=7):
     """
-    Convert SRT to ASS format with special handling for Thai text.
-    
-    Args:
-        srt_path: Path to the SRT file
-        ass_path: Path to save the ASS file
-        font_name: Font to use
-        font_size: Font size
-        primary_color: Primary text color
-        outline_color: Outline color
-        alignment: Text alignment (1=left, 2=center, 3=right)
-        margin_v: Vertical margin
-        max_words_per_line: Maximum words per line
-        max_width: Maximum width of text
-        back_color: Background color of the subtitle box
+    Convert SRT subtitles to ASS format with special handling for Thai text.
     """
     try:
-        # Import PyThaiNLP for better Thai word segmentation
-        try:
-            from pythainlp.tokenize import word_tokenize
-            pythainlp_available = True
-        except ImportError:
-            pythainlp_available = False
-            logger.warning("PyThaiNLP not available. Thai word segmentation will be limited.")
+        logger.info(f"Converting SRT to ASS for Thai: {srt_path}")
         
-        # Read the SRT file
+        # Get the best available Thai font if none specified
+        if not font_name:
+            font_name = get_available_thai_font()
+            logger.info(f"Using detected Thai font: {font_name}")
+        
+        # Parse the SRT file
         with open(srt_path, 'r', encoding='utf-8-sig') as f:
-            srt_content = f.read()
+            subs = list(srt.parse(f.read()))
         
-        # Parse the SRT content
-        subs = list(srt.parse(srt_content))
+        # Create an ASS file
+        ass_path = srt_path.replace('.srt', '.ass')
         
-        # Create ASS file with explicit font embedding
+        # Write ASS file with Thai-specific settings
         with open(ass_path, 'w', encoding='utf-8') as f:
-            # Write ASS header
+            # Write header
             f.write("[Script Info]\n")
-            f.write("Title: Converted from SRT\n")
+            f.write("Title: Thai Subtitles\n")
             f.write("ScriptType: v4.00+\n")
-            f.write("WrapStyle: 0\n")
-            f.write("ScaledBorderAndShadow: yes\n")
+            f.write("Collisions: Normal\n")
             f.write("PlayResX: 1920\n")  # Standard HD width
             f.write("PlayResY: 1080\n")  # Standard HD height
             f.write("YCbCr Matrix: None\n\n")
@@ -290,7 +273,7 @@ def convert_srt_to_ass_for_thai(srt_path, ass_path, font_name, font_size,
                 # Apply max_words_per_line if specified
                 if max_words_per_line and max_words_per_line > 0:
                     # Use PyThaiNLP for better word segmentation if available
-                    if pythainlp_available:
+                    if PYTHAINLP_AVAILABLE:
                         try:
                             # Tokenize the text into words
                             words = word_tokenize(text, engine="newmm")
@@ -376,7 +359,10 @@ def convert_srt_to_ass_for_thai(srt_path, ass_path, font_name, font_size,
         logger.error(f"Error converting SRT to ASS for Thai: {str(e)}")
         import traceback
         logger.error(traceback.format_exc())
-        return None
+        # Instead of returning None, return the original SRT path
+        # This allows the process to continue even if ASS conversion fails
+        logger.warning(f"Falling back to original SRT file: {srt_path}")
+        return srt_path
 
 def get_available_thai_font():
     """
@@ -627,22 +613,25 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, font_nam
     # Set up subtitle filter based on style
     if is_thai:
         # Create a special ASS file for Thai text
-        ass_subtitle_path = processed_subtitle_path.replace('.srt', '_thai.ass')
         thai_ass_path = convert_srt_to_ass_for_thai(
             processed_subtitle_path, 
-            ass_subtitle_path, 
             font_name, 
-            adjusted_font_size,
+            adjusted_font_size, 
             line_color, 
             outline_color, 
-            align_param, 
-            margin_v,
-            max_words_per_line,
-            max_width,
-            back_color
+            max_words_per_line=max_words_per_line,
+            alignment=align_param,
+            margin_v=margin_v,
+            max_width=max_width,
+            back_color=back_color
         )
         
         # Properly escape the subtitle path for Windows
+        # Handle the case where thai_ass_path might be None (although we fixed that above)
+        if thai_ass_path is None:
+            logger.error("Thai ASS conversion failed, falling back to original subtitle path")
+            thai_ass_path = subtitle_path
+            
         escaped_subtitle_path = thai_ass_path.replace('\\', '\\\\')
         
         # Use a more direct approach with the ASS filter
