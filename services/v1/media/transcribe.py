@@ -46,14 +46,14 @@ def transcribe_with_whisper(video_path: str, language: str = "en", job_id: str =
                 logger.error("OPENAI_API_KEY not found in environment variables")
                 raise ValueError("OPENAI_API_KEY not set")
                 
-            # Set up the API key
-            openai.api_key = api_key
+            # Set up the API client
+            client = openai.OpenAI(api_key=api_key)
             
             # Open the audio file
             with open(audio_path, "rb") as audio_file:
-                # Call the OpenAI Whisper API
+                # Call the OpenAI Whisper API with the new v1.0.0+ format
                 logger.info("Calling OpenAI Whisper API")
-                response = openai.Audio.transcribe(
+                response = client.audio.transcriptions.create(
                     model="whisper-1",
                     file=audio_file,
                     language=language,

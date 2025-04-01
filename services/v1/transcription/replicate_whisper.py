@@ -77,12 +77,11 @@ def transcribe_with_replicate(audio_url: str, language: str = "th", batch_size: 
                 logger.info(f"Successfully extracted audio to {audio_file_path}")
                 
                 # Upload the extracted audio to a temporary storage
-                # For simplicity, we'll use the Replicate upload API
-                logger.info("Uploading extracted audio to Replicate...")
-                with open(audio_file_path, "rb") as f:
-                    extracted_audio_url = replicate.upload(f)
+                # For simplicity, we'll use a direct file path instead of uploading
+                logger.info("Using local audio file path for Replicate...")
+                extracted_audio_url = audio_file_path
                 
-                logger.info(f"Uploaded audio to {extracted_audio_url}")
+                logger.info(f"Using audio file at {extracted_audio_url}")
                 
             except Exception as e:
                 logger.error(f"Error extracting audio: {str(e)}")
