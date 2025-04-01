@@ -3,6 +3,7 @@ Werkzeug
 requests
 ffmpeg-python
 openai-whisper==20231117
+openai>=1.0.0
 gunicorn
 APScheduler
 srt
