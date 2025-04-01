@@ -24,10 +24,10 @@ def transcribe_with_replicate(audio_url: str, language: str = "th", batch_size: 
     """
     try:
         # Get API key from environment
-        api_key = os.environ.get("REPLICATE_API_KEY")
+        api_key = os.environ.get("REPLICATE_API_TOKEN")
         if not api_key:
-            logger.error("REPLICATE_API_KEY not found in environment variables")
-            raise ValueError("REPLICATE_API_KEY not set")
+            logger.error("REPLICATE_API_TOKEN not found in environment variables")
+            raise ValueError("REPLICATE_API_TOKEN not set")
             
         # Set up the API key
         os.environ["REPLICATE_API_TOKEN"] = api_key
