@@ -134,7 +134,7 @@ def cache_result(func):
     
     return wrapper
 
-def convert_srt_to_ass_for_thai(srt_path, font_name=None, font_size=24, primary_color="white", outline_color="black", back_color=None, alignment=2, margin_v=30, max_words_per_line=7):
+def convert_srt_to_ass_for_thai(srt_path, font_name=None, font_size=24, primary_color="white", outline_color="black", back_color=None, alignment=2, margin_v=30, max_words_per_line=7, max_width=None):
     """
     Convert SRT subtitles to ASS format with special handling for Thai text.
     """
