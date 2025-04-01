@@ -1,12 +1,12 @@
 # Script-Enhanced Auto-Caption Feature
 
-This document describes how to use the Script-Enhanced Auto-Caption feature, which combines OpenAI's Whisper API for transcription with your pre-written voice-over script to create highly accurate Thai subtitles.
+This document describes how to use the Script-Enhanced Auto-Caption feature, which combines OpenAI's Whisper API or Replicate Whisper transcription tool with your pre-written voice-over script to create highly accurate Thai subtitles.
 
 ## Overview
 
-The Script-Enhanced Auto-Caption feature addresses the issue of transcription inaccuracies by aligning your voice-over script with the timing information from the Whisper API. This feature:
+The Script-Enhanced Auto-Caption feature addresses the issue of transcription inaccuracies by aligning your voice-over script with the timing information from the Whisper API or Replicate Whisper transcription tool. This feature:
 
-1. Uses OpenAI's Whisper API for initial transcription and timing information
+1. Uses OpenAI's Whisper API or Replicate Whisper transcription tool for initial transcription and timing information
 2. Aligns your pre-written script with the transcription timing
 3. Creates enhanced subtitles with accurate text from your script
 4. Adds customizable subtitles to videos with proper Thai font rendering
@@ -44,6 +44,8 @@ POST /api/v1/video/script-enhanced-auto-caption
 | strikeout         | boolean | No       | Whether to use strikeout text                     | false     |
 | output_path       | string  | No       | Output path for the captioned video (optional)    | -         |
 | webhook_url       | string  | No       | Webhook URL for async processing (optional)       | -         |
+| transcription_tool | string  | No       | Transcription tool to use (openai_whisper or replicate_whisper) | 'openai_whisper' |
+| start_time        | number  | No       | Start time for subtitles in seconds               | 0         |
 
 ## Example Request
 
@@ -62,6 +64,8 @@ POST /api/v1/video/script-enhanced-auto-caption
   "outline_color": "#000000",
   "alignment": "center",
   "bold": true,
+  "transcription_tool": "replicate_whisper",
+  "start_time": 2.0,
   "webhook_url": "https://your-webhook-url.com/callback"
 }
 ```
@@ -124,7 +128,7 @@ To use this feature, you need to:
 
 ## How It Works
 
-1. The system uses OpenAI's Whisper API to get initial transcription with timing information
+1. The system uses OpenAI's Whisper API or Replicate Whisper transcription tool to get initial transcription with timing information
 2. Your provided script is aligned with the transcription using advanced text alignment algorithms
 3. The system creates enhanced subtitles that use your accurate script text with the timing from Whisper
 4. The enhanced subtitles are added to the video using FFmpeg with proper Thai font rendering

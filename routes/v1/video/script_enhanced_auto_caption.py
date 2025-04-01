@@ -3,9 +3,10 @@ import os
 import logging
 import json
 from datetime import datetime
-from services.v1.media.openai_transcribe import transcribe_with_openai
+from services.v1.media.transcribe import transcribe_with_whisper
 from services.v1.media.script_enhanced_subtitles import enhance_subtitles_from_segments
 from services.v1.video.caption_video import add_subtitles_to_video
+from services.v1.transcription.replicate_whisper import transcribe_with_replicate
 from services.webhook import send_webhook
 from services.file_management import download_file
 import time
@@ -13,6 +14,7 @@ import threading
 import tempfile
 import traceback
 import shutil
+import uuid
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -56,7 +58,9 @@ def script_enhanced_auto_caption():
         "margin_l": "Left margin for subtitles",
         "margin_r": "Right margin for subtitles",
         "encoding": "Encoding for subtitles",
-        "min_start_time": "Minimum start time for subtitles"
+        "min_start_time": "Minimum start time for subtitles",
+        "transcription_tool": "Transcription tool to use (replicate_whisper or openai_whisper)",
+        "start_time": "Start time for transcription (in seconds)"
     }
     """
     try:
@@ -184,7 +188,7 @@ def script_enhanced_auto_caption():
         logger.error(traceback.format_exc())
         return jsonify({"status": "error", "message": f"Unexpected error: {str(e)}"}), 500
 
-def process_script_enhanced_auto_caption(video_url, script_text, language, settings, output_path=None, webhook_url=None, job_id=None, response_type="cloud", include_srt=False, min_start_time=0.0):
+def process_script_enhanced_auto_caption(video_url, script_text, language="en", settings=None, output_path=None, webhook_url=None, job_id=None, response_type="cloud", include_srt=False, min_start_time=0.0):
     """
     Process script-enhanced auto-captioning.
     
@@ -203,6 +207,28 @@ def process_script_enhanced_auto_caption(video_url, script_text, language, setti
     Returns:
         dict: Response with captioned video URL and metadata
     """
+    if not job_id:
+        job_id = str(uuid.uuid4())
+        
+    if not settings:
+        settings = {}
+        
+    logger.info(f"Job {job_id}: Starting script-enhanced auto-caption processing")
+    logger.info(f"Job {job_id}: Video URL: {video_url}")
+    logger.info(f"Job {job_id}: Script length: {len(script_text)} characters")
+    logger.info(f"Job {job_id}: Language: {language}")
+    
+    # Extract settings
+    settings_obj = settings if isinstance(settings, dict) else json.loads(settings)
+    
+    # Get transcription tool from settings
+    transcription_tool = settings_obj.get("transcription_tool", "openai_whisper")
+    logger.info(f"Using transcription tool: {transcription_tool}")
+    
+    # Get start time if specified
+    start_time = float(settings_obj.get("start_time", 0.0))
+    logger.info(f"Using start time: {start_time} seconds")
+    
     start_time = time.time()
     
     # Create a temporary directory for processing
@@ -212,87 +238,56 @@ def process_script_enhanced_auto_caption(video_url, script_text, language, setti
     logger.info(f"Job {job_id}: Created temporary directory: {temp_dir}")
     
     try:
-        # Step 1: Download video if it's a URL
-        local_video_path = None
-        if video_url.startswith(('http://', 'https://')):
-            logger.info(f"Job {job_id}: Downloading video from URL")
-            # Use a consistent filename with .mp4 extension
-            video_filename = f"video_{job_id}.mp4"
-            local_video_path = os.path.join(temp_dir, video_filename)
-            from services.file_management import download_file
+        # Download the video
+        logger.info(f"Job {job_id}: Downloading video from {video_url}")
+        downloaded_video_path = os.path.join(temp_dir, f"video_{job_id}.mp4")
+        download_file(video_url, downloaded_video_path)
+        logger.info(f"Job {job_id}: Video downloaded to {downloaded_video_path}")
+        
+        # Transcribe the video based on selected tool
+        if transcription_tool == "replicate_whisper":
             try:
-                download_file(video_url, local_video_path)
-                # Verify the file was downloaded successfully
-                if not os.path.exists(local_video_path) or os.path.getsize(local_video_path) == 0:
-                    raise ValueError(f"Failed to download video from {video_url}")
-                logger.info(f"Job {job_id}: Video downloaded to {local_video_path}")
+                # Extract audio URL if provided
+                audio_url = settings_obj.get("audio_url")
+                if not audio_url:
+                    # If no audio URL provided, use the video URL
+                    audio_url = video_url
+                    
+                # Use Replicate for transcription
+                segments = transcribe_with_replicate(
+                    audio_url=audio_url,
+                    language=language,
+                    batch_size=settings_obj.get("batch_size", 64)
+                )
+                logger.info(f"Transcription completed with Replicate Whisper, got {len(segments)} segments")
             except Exception as e:
-                error_message = f"Error downloading video from {video_url}: {str(e)}"
-                logger.error(f"Job {job_id}: {error_message}")
-                raise ValueError(error_message)
+                logger.error(f"Error in Replicate transcription: {str(e)}")
+                raise ValueError(f"Replicate transcription error: {str(e)}")
         else:
-            local_video_path = video_url
-            logger.info(f"Job {job_id}: Using local video path: {local_video_path}")
-            # Verify the local file exists
-            if not os.path.exists(local_video_path):
-                error_message = f"Local video file not found at path: {local_video_path}"
-                logger.error(f"Job {job_id}: {error_message}")
-                raise ValueError(error_message)
+            # Default to OpenAI Whisper
+            try:
+                segments = transcribe_with_whisper(
+                    video_path=downloaded_video_path,
+                    language=language
+                )
+                logger.info(f"Transcription completed with OpenAI Whisper, got {len(segments)} segments")
+            except Exception as e:
+                logger.error(f"Error in OpenAI transcription: {str(e)}")
+                raise ValueError(f"OpenAI transcription error: {str(e)}")
         
-        # Determine output path if not provided
-        if not output_path:
-            output_filename = f"captioned_{os.path.basename(local_video_path)}"
-            output_path = os.path.join(temp_dir, output_filename)
-        
-        # Step 2: Transcribe the video using OpenAI Whisper API
-        logger.info(f"Job {job_id}: Transcribing video with OpenAI Whisper API")
-        from services.v1.media.openai_transcribe import transcribe_with_openai
-        
-        # Paths for transcription outputs
-        transcription_dir = os.path.join(temp_dir, "transcription")
-        os.makedirs(transcription_dir, exist_ok=True)
-        
-        text_path = os.path.join(transcription_dir, f"transcription_{job_id}.txt")
-        srt_path = os.path.join(transcription_dir, f"transcription_{job_id}.srt")
-        segments_path = os.path.join(transcription_dir, f"segments_{job_id}.json")
-        enhanced_srt_path = os.path.join(transcription_dir, f"enhanced_{job_id}.srt")
-        
-        # Call OpenAI Whisper API for transcription
-        text_file, srt_file, segments_file, media_file_path = transcribe_with_openai(
-            local_video_path, 
-            language=language,
-            job_id=job_id,
-            preserve_media=True  # Keep the media file for subtitle addition
-        )
-        
-        # Copy the files to our desired locations
-        import shutil
-        shutil.copy(text_file, text_path)
-        shutil.copy(srt_file, srt_path)
-        shutil.copy(segments_file, segments_path)
-        
-        # Update local_video_path if it changed during transcription
-        if media_file_path != local_video_path:
-            local_video_path = media_file_path
-            logger.info(f"Job {job_id}: Updated video path to {local_video_path}")
-        
-        if not os.path.exists(srt_path) or os.path.getsize(srt_path) == 0:
-            error_message = "Transcription failed: Empty or missing SRT file"
-            logger.error(f"Job {job_id}: {error_message}")
-            raise ValueError(error_message)
-        
-        # Load segments from the JSON file
-        if not os.path.exists(segments_path):
-            raise ValueError(f"Segments file not found at {segments_path}")
-            
-        with open(segments_path, 'r', encoding='utf-8') as f:
-            segments = json.load(f)
+        # Adjust segment start times if needed
+        if start_time > 0:
+            for segment in segments:
+                segment["start"] = max(segment["start"] + start_time, start_time)
+                segment["end"] = segment["end"] + start_time
+            logger.info(f"Adjusted segment timings to start at {start_time} seconds")
         
         # Align script text with segments
         logger.info(f"Job {job_id}: Aligning script with transcription segments")
-        from services.v1.media.script_enhanced_subtitles import enhance_subtitles_from_segments
         
-        # Use the enhance_subtitles_from_segments function that uploads to cloud storage
+        # Create path for enhanced SRT file
+        enhanced_srt_path = os.path.join(temp_dir, f"enhanced_{job_id}.srt")
+        
         alignment_result = enhance_subtitles_from_segments(
             script_text=script_text, 
             segments=segments, 
@@ -342,7 +337,7 @@ def process_script_enhanced_auto_caption(video_url, script_text, language, setti
         logger.info(f"Job {job_id}: Adding subtitles to video")
         # Prepare parameters for add_subtitles_to_video
         add_subtitles_params = {
-            "video_path": local_video_path,  # Make sure we're using the local path
+            "video_path": downloaded_video_path,  # Make sure we're using the local path
             "subtitle_path": enhanced_srt_path,
             "output_path": output_path,
             "job_id": job_id
@@ -383,8 +378,8 @@ def process_script_enhanced_auto_caption(video_url, script_text, language, setti
         add_subtitles_params.update(supported_params)
         
         # Verify that the files exist before calling add_subtitles_to_video
-        if not os.path.exists(local_video_path):
-            error_message = f"Video file not found at path: {local_video_path}"
+        if not os.path.exists(downloaded_video_path):
+            error_message = f"Video file not found at path: {downloaded_video_path}"
             logger.error(f"Job {job_id}: {error_message}")
             raise ValueError(error_message)
             
