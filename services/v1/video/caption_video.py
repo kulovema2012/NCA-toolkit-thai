@@ -314,8 +314,9 @@ def convert_srt_to_ass_for_thai(srt_path, font_name=None, font_size=24, primary_
                                 logger.info(f"Applied optimal_words_per_line={optimal_words_per_line}, resulting in {len(lines)} lines")
                         except ImportError:
                             # Fallback to character-based splitting
+                            logger.warning("ImportError in Thai word segmentation, falling back to character-based splitting")
+                            lines = []
                             if len(text) > 25:
-                                lines = []
                                 # Try to split at spaces or punctuation
                                 split_points = [m.start() for m in re.finditer(r'[.,!?;: ]', text)]
                                 
@@ -336,17 +337,30 @@ def convert_srt_to_ass_for_thai(srt_path, font_name=None, font_size=24, primary_
                                         # No good split point, just use the max length
                                         lines.append(text[current_pos:end_pos].strip())
                                         current_pos = end_pos
-                        
-                        text = '\n'.join(lines)
+                            else:
+                                # Text is short enough, no need to split
+                                lines = [text]
+                                
+                            # Join the lines with newline character
+                            text = "\\N".join(lines)
+                            logger.info(f"Applied character-based splitting, resulting in {len(lines)} lines")
+                        except Exception as e:
+                            # Catch any other exceptions and log them
+                            logger.error(f"Error in Thai word processing: {str(e)}")
+                            # Don't modify the text in case of other errors
+                            logger.warning("Keeping original text due to processing error")
                 else:
                     # For non-Thai text, split by words
                     words = text.split()
+                    lines = []
                     if len(words) > max_words_per_line:
-                        lines = []
                         for j in range(0, len(words), max_words_per_line):
                             line = ' '.join(words[j:j+max_words_per_line])
                             lines.append(line)
-                        text = '\n'.join(lines)
+                        text = "\\N".join(lines)
+                    else:
+                        # Text is short enough, no need to split
+                        lines = [text]
             
                 # Write the event line with explicit background color and style overrides
                 # Use specific ASS override tags to ensure proper display
@@ -634,8 +648,15 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, font_nam
             
         escaped_subtitle_path = thai_ass_path.replace('\\', '\\\\')
         
-        # Use a more direct approach with the ASS filter
-        subtitle_filter = f"ass={escaped_subtitle_path}"
+        # Determine the correct subtitle filter based on file extension
+        if thai_ass_path.endswith('.ass'):
+            # Use ASS filter for ASS files
+            subtitle_filter = f"ass={escaped_subtitle_path}"
+        else:
+            # Use subtitles filter for SRT files
+            subtitle_filter = f"subtitles={escaped_subtitle_path}"
+        
+        logger.info(f"Using subtitle filter: {subtitle_filter}")
         
         # Add voice-over delay of 0.2 seconds for Thai videos to ensure synchronization
         voice_over_delay = 0.2
@@ -926,15 +947,16 @@ def process_srt_file(subtitle_path, max_words_per_line=7, is_thai=False):
                     continue
                 except ImportError:
                     # Fallback to character-based splitting
-                    if len(text) > max_thai_chars_per_line:
-                        lines = []
+                    logger.warning("ImportError in Thai word segmentation, falling back to character-based splitting")
+                    lines = []
+                    if len(text) > 25:
                         # Try to split at spaces or punctuation
                         split_points = [m.start() for m in re.finditer(r'[.,!?;: ]', text)]
                         
                         current_pos = 0
                         while current_pos < len(text):
                             # Find the best split point within the character limit
-                            end_pos = min(current_pos + max_thai_chars_per_line, len(text))
+                            end_pos = min(current_pos + 25, len(text))
                             
                             # Look for a good split point
                             good_splits = [p for p in split_points if p > current_pos and p < end_pos]
@@ -948,19 +970,30 @@ def process_srt_file(subtitle_path, max_words_per_line=7, is_thai=False):
                                 # No good split point, just use the max length
                                 lines.append(text[current_pos:end_pos].strip())
                                 current_pos = end_pos
+                    else:
+                        # Text is short enough, no need to split
+                        lines = [text]
                         
-                        text = '\n'.join(lines)
+                    # Join the lines with newline character
+                    text = "\\N".join(lines)
+                    logger.info(f"Applied character-based splitting, resulting in {len(lines)} lines")
                 except Exception as e:
-                    logger.warning(f"Error during Thai word segmentation: {str(e)}")
+                    # Catch any other exceptions and log them
+                    logger.error(f"Error in Thai word processing: {str(e)}")
+                    # Don't modify the text in case of other errors
+                    logger.warning("Keeping original text due to processing error")
             else:
                 # For non-Thai text, split by words
                 words = text.split()
+                lines = []
                 if len(words) > max_words_per_line:
-                    lines = []
                     for j in range(0, len(words), max_words_per_line):
                         line = ' '.join(words[j:j+max_words_per_line])
                         lines.append(line)
-                    text = '\n'.join(lines)
+                    text = "\\N".join(lines)
+                else:
+                    # Text is short enough, no need to split
+                    lines = [text]
             
             # Ensure subtitle duration is not too long
             end_time = subtitle.end
