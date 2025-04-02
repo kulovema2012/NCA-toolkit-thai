@@ -231,7 +231,7 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
     # Get start time if specified
     logger.info(f"Using start time: {start_time} seconds")
     
-    start_time = time.time()
+    process_start_time = time.time()
     
     # Create a temporary directory for processing
     temp_dir = os.path.join(tempfile.gettempdir(), f"script_enhanced_auto_caption_{job_id}")
@@ -246,17 +246,24 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
         download_file(video_url, downloaded_video_path)
         logger.info(f"Job {job_id}: Video downloaded to {downloaded_video_path}")
         
+        # Try to import the Replicate Whisper module
+        try:
+            from services.v1.transcription.replicate_whisper import transcribe_with_replicate
+            replicate_available = True
+        except ImportError:
+            logger.warning("Replicate Whisper module not available")
+            replicate_available = False
+        
         # Transcribe the video based on selected tool
         transcription_tool_used = transcription_tool  # Default to the selected tool
         try:
-            if transcription_tool == "replicate_whisper":
+            if transcription_tool == "replicate_whisper" and replicate_available:
                 try:
                     # Extract audio URL if provided
                     audio_url = settings_obj.get("audio_url")
                     if not audio_url:
                         # If no audio URL provided, use the video URL
                         audio_url = video_url
-                        
                     # Ensure the audio_url is a remote URL (not a local path)
                     if not audio_url.startswith(('http://', 'https://')):
                         logger.warning(f"Audio URL {audio_url} is not a remote URL. Replicate requires a remote URL.")
@@ -347,7 +354,7 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
             for segment in segments:
                 segment["start"] = segment["start"] + start_time
                 segment["end"] = segment["end"] + start_time
-            
+        
         # Ensure segments have minimum duration
         min_duration = 1.0  # Minimum duration in seconds
         for segment in segments:
@@ -460,7 +467,7 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
         
         # Calculate total processing time
         end_time = time.time()
-        total_time = end_time - start_time
+        total_time = end_time - process_start_time
         run_time = total_time
         
         # Prepare response format that matches the original version

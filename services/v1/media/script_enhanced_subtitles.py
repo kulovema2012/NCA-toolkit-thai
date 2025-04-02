@@ -519,7 +519,7 @@ def enhance_subtitles_from_segments(segments, script_text, language="en", settin
             # Write Styles
             f.write("[V4+ Styles]\n")
             f.write("Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n")
-            f.write(f"Style: Default,{font_name},{font_size},&HFFFFFF,&HFFFFFF,&H000000,&HFF000000,1,0,0,0,100,100,0,0,1,2,0,2,20,20,20,1\n\n")
+            f.write(f"Style: Default,{font_name},{font_size},&HFFFFFF,&HFFFFFF,&H000000,&HFF000000,1,0,0,0,100,100,0,0,1,2,2,2,20,20,20,1\n\n")
             
             # Write Events
             f.write("[Events]\n")

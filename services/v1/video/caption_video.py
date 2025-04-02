@@ -1391,3 +1391,96 @@ def format_time_ass(time_in_seconds):
     centiseconds = int((time_in_seconds % 1) * 100)
     
     return f"{hours}:{minutes:02d}:{seconds:02d}.{centiseconds:02d}"
+
+def add_subtitles_to_video(video_path, subtitle_path, output_path, font_size=24, font_name="Arial"):
+    """
+    Add subtitles to a video using FFmpeg.
+    
+    Args:
+        video_path: Path to the video file
+        subtitle_path: Path to the subtitle file (SRT or ASS)
+        output_path: Path to save the output video
+        font_size: Font size for subtitles
+        font_name: Font name for subtitles
+        
+    Returns:
+        Path to the output video
+    """
+    try:
+        logger = logging.getLogger(__name__)
+        logger.info(f"Adding subtitles to video: {video_path}")
+        logger.info(f"Subtitle file: {subtitle_path}")
+        logger.info(f"Output path: {output_path}")
+        
+        # Check if subtitle file exists
+        if not os.path.exists(subtitle_path):
+            logger.error(f"Subtitle file not found: {subtitle_path}")
+            raise FileNotFoundError(f"Subtitle file not found: {subtitle_path}")
+            
+        # Get subtitle file extension
+        _, ext = os.path.splitext(subtitle_path)
+        ext = ext.lower()
+        
+        logger.info(f"Subtitle file extension: {ext}")
+        
+        # Check file sizes
+        video_size = os.path.getsize(video_path)
+        subtitle_size = os.path.getsize(subtitle_path)
+        logger.info(f"Video file size: {video_size} bytes")
+        logger.info(f"Subtitle file size: {subtitle_size} bytes")
+        
+        # Read first few lines of subtitle file to verify content
+        with open(subtitle_path, 'r', encoding='utf-8') as f:
+            subtitle_preview = f.read(1000)  # Read first 1000 chars
+        logger.info(f"Subtitle file preview: {subtitle_preview[:200]}...")  # Log first 200 chars
+        
+        # Determine the correct subtitle filter based on file extension
+        if ext == '.ass':
+            # For ASS files, use the ass filter with explicit file path
+            subtitle_filter = f"ass='{subtitle_path}'"
+            logger.info("Using ASS subtitle filter")
+        elif ext == '.srt':
+            # For SRT files, use the subtitles filter with styling options
+            subtitle_filter = f"subtitles='{subtitle_path}':force_style='FontName={font_name},FontSize={font_size},BackColour=&H80000000,BorderStyle=4,Outline=1,Shadow=0'"
+            logger.info("Using SRT subtitle filter with styling")
+        else:
+            logger.warning(f"Unknown subtitle format: {ext}, defaulting to subtitles filter")
+            subtitle_filter = f"subtitles='{subtitle_path}'"
+        
+        # Build FFmpeg command with improved options
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", video_path,
+            "-vf", subtitle_filter,
+            "-c:v", "libx264", "-crf", "23",
+            "-c:a", "copy",
+            "-max_muxing_queue_size", "9999",  # Prevent muxing queue errors
+            output_path
+        ]
+        
+        logger.info(f"Running FFmpeg command: {' '.join(cmd)}")
+        
+        # Run FFmpeg
+        process = subprocess.run(cmd, check=True, capture_output=True, text=True)
+        
+        # Log FFmpeg output
+        if process.stdout:
+            logger.info(f"FFmpeg stdout: {process.stdout}")
+        if process.stderr:
+            logger.info(f"FFmpeg stderr: {process.stderr}")
+        
+        # Check if output file was created
+        if os.path.exists(output_path):
+            output_size = os.path.getsize(output_path)
+            logger.info(f"Output file created successfully: {output_path} ({output_size} bytes)")
+            return output_path
+        else:
+            logger.error(f"Output file was not created: {output_path}")
+            raise FileNotFoundError(f"Output file was not created: {output_path}")
+            
+    except subprocess.CalledProcessError as e:
+        logger.error(f"FFmpeg error: {e.stderr}")
+        raise ValueError(f"FFmpeg error: {e.stderr}")
+    except Exception as e:
+        logger.error(f"Error adding subtitles to video: {str(e)}")
+        raise
