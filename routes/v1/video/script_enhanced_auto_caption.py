@@ -254,6 +254,16 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
                         # If no audio URL provided, use the video URL
                         audio_url = video_url
                         
+                    # Ensure the audio_url is a remote URL (not a local path)
+                    if not audio_url.startswith(('http://', 'https://')):
+                        logger.warning(f"Audio URL {audio_url} is not a remote URL. Replicate requires a remote URL.")
+                        # Fall back to using the video URL if it's remote
+                        if video_url.startswith(('http://', 'https://')):
+                            logger.info(f"Using video URL instead: {video_url}")
+                            audio_url = video_url
+                        else:
+                            raise ValueError("Replicate requires a publicly accessible URL for audio. Please provide a public URL.")
+                        
                     # Use Replicate for transcription
                     segments = transcribe_with_replicate(
                         audio_url=audio_url,

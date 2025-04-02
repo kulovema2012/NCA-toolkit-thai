@@ -10,6 +10,8 @@ from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
+SUPPORTED_LANGUAGES = ["english", "spanish", "french", "german", "italian", "portuguese", "dutch", "russian", "chinese", "japanese", "korean", "arabic", "hebrew", "thai"]
+
 def transcribe_with_replicate(audio_url: str, language: str = "th", batch_size: int = 64) -> List[Dict]:
     """
     Transcribe audio using Replicate's Incredibly Fast Whisper model.
@@ -76,10 +78,16 @@ def transcribe_with_replicate(audio_url: str, language: str = "th", batch_size: 
                 
                 logger.info(f"Successfully extracted audio to {audio_file_path}")
                 
-                # Upload the extracted audio to a temporary storage
-                # For simplicity, we'll use a direct file path instead of uploading
-                logger.info("Using local audio file path for Replicate...")
-                extracted_audio_url = audio_file_path
+                # Create a publicly accessible URL for the audio file
+                # Since we can't easily create a public URL in this context,
+                # we'll use the original video URL if it's a remote URL
+                if audio_url.startswith(('http://', 'https://')):
+                    logger.info(f"Using original remote URL: {audio_url}")
+                    extracted_audio_url = audio_url
+                else:
+                    # If we can't create a public URL, we'll need to inform the user
+                    logger.error("Replicate requires a publicly accessible URL for audio files")
+                    raise ValueError("Replicate requires a publicly accessible URL for audio. Please provide a public URL for your audio/video file.")
                 
                 logger.info(f"Using audio file at {extracted_audio_url}")
                 
@@ -95,7 +103,7 @@ def transcribe_with_replicate(audio_url: str, language: str = "th", batch_size: 
         input_params = {
             "audio": final_audio_url,
             "batch_size": batch_size,
-            "language": language,
+            "language": language if language in SUPPORTED_LANGUAGES else "english",
             "task": "transcribe",
             "timestamp": "chunk",
             "diarise_audio": False
