@@ -22,9 +22,27 @@ POST /api/v1/video/script-enhanced-auto-caption
 | include_srt | boolean | Whether to include SRT file in response (default: false) | No |
 | min_start_time | number | Minimum start time for subtitles in seconds (default: 0) | No |
 
-## Settings Object
+## Request Format
 
-The settings object can contain the following properties:
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| video_url | string | Yes | URL to the video file to be captioned. Must be publicly accessible. |
+| script_text | string | Yes | The script text to be aligned with the video. |
+| language | string | No | Language code (default: "en"). Use "th" for Thai. |
+| settings | object | No | Additional settings for the captioning process. |
+
+### Settings Object
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| transcription_tool | string | No | Tool to use for transcription. Options: "openai_whisper" (default) or "replicate_whisper". |
+| audio_url | string | No | URL to an audio file to use instead of extracting audio from the video. Must be publicly accessible. |
+| start_time | number | No | Time in seconds when subtitles should start appearing (default: 0). |
+| batch_size | number | No | Batch size for Replicate Whisper processing (default: 64). |
+| font_size | number | No | Font size for subtitles (default: 24). |
+| max_width | number | No | Maximum width for subtitle lines (default: 40). |
 
 ### Font Settings
 
@@ -68,64 +86,52 @@ The settings object can contain the following properties:
 | output.format | string | Output format (mp4) | "mp4" |
 | output.quality | string | Output quality (low, medium, high) | "medium" |
 
-## Example Request
+### Example Request
 
 ```json
 {
-  "video_url": "https://storage.googleapis.com/your-bucket-name/your-video-file.mp4",
-  "script_text": "สวัสดีครับ วันนี้เรามาพูดคุยเกี่ยวกับการพัฒนาแอปพลิเคชันด้วยภาษาไทย",
+  "video_url": "https://example.com/video.mp4",
+  "script_text": "สวัสดีครับ นี่คือตัวอย่างสคริปต์ภาษาไทย",
   "language": "th",
   "settings": {
-    "font": {
-      "name": "Sarabun",
-      "size": 32
-    },
-    "style": {
-      "subtitle_style": "modern",
-      "position": "bottom",
-      "alignment": "center",
-      "margin_v": 60,
-      "back_color": "&HFF000000",
-      "line_color": "&HFFFFFF",
-      "outline_color": "&H000000",
-      "max_words_per_line": 18,
-      "bold": true,
-      "outline": 2,
-      "shadow": 0
-    },
     "transcription_tool": "replicate_whisper",
-    "audio_url": "https://storage.googleapis.com/your-bucket-name/your-audio-file.mp3",
-    "start_time": 2.0,
-    "output": {
-      "format": "mp4",
-      "quality": "high"
-    }
-  },
-  "job_id": "thai-subtitle-job-12345"
+    "start_time": 2,
+    "font_size": 28,
+    "max_width": 36
+  }
 }
 ```
 
-## Example Response
+## Response Format
+
+### Success Response
 
 ```json
 {
   "status": "success",
-  "data": {
-    "captioned_video_url": "https://storage.googleapis.com/your-bucket-name/captioned_video.mp4",
-    "job_id": "thai-subtitle-job-12345",
-    "processing_time": 15.5
-  }
+  "message": "Script-enhanced auto-caption completed successfully",
+  "output_video_url": "https://storage.googleapis.com/your-bucket/output-video.mp4",
+  "transcription_tool": "replicate_whisper",
+  "job_id": "script_enhanced_auto_caption_20250402123456"
+}
+```
+
+### Error Response
+
+```json
+{
+  "status": "error",
+  "message": "Error processing video",
+  "error_details": "Specific error message"
 }
 ```
 
 ## Notes
 
 - The API uses AI transcription to align the script with the audio timing.
-- The script text should match the audio content as closely as possible for best results.
-- For Thai language, use language="th" and a Thai font like "Sarabun".
-- The back_color parameter uses ASS format (&HAABBGGRR) where AA is alpha (00-FF), BB is blue, GG is green, and RR is red.
-- For solid black background, use "&HFF000000".
-- For semi-transparent black background, use "&H80000000".
-- The start_time parameter can be used to delay the appearance of subtitles (e.g., 2.0 for 2 seconds).
-- When using replicate_whisper, you can optionally provide a separate audio_url if you have a higher quality audio file.
-- The replicate_whisper transcription tool generally provides more accurate results for Thai language than OpenAI Whisper.
+- The `video_url` and `audio_url` (if provided) must be publicly accessible URLs.
+- For Replicate Whisper, the audio/video URL must be accessible via HTTP/HTTPS.
+- The `script_text` will be aligned with the transcription timing to create accurate subtitles.
+- Thai language is supported with specialized word segmentation for better readability.
+- Supported languages for Replicate Whisper include: english, spanish, french, german, italian, portuguese, dutch, russian, chinese, japanese, korean, arabic, hebrew, thai.
+- When using "th" as the language code, the system will use "thai" for Replicate or "th" for OpenAI Whisper.

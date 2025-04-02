@@ -245,6 +245,7 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
         logger.info(f"Job {job_id}: Video downloaded to {downloaded_video_path}")
         
         # Transcribe the video based on selected tool
+        transcription_tool_used = transcription_tool  # Default to the selected tool
         try:
             if transcription_tool == "replicate_whisper":
                 try:
@@ -270,6 +271,7 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
                         language=language,
                         batch_size=settings_obj.get("batch_size", 64)
                     )
+                    transcription_tool_used = "replicate_whisper"
                     logger.info(f"Transcription completed with Replicate Whisper, got {len(segments)} segments")
                 except Exception as e:
                     logger.error(f"Error in Replicate transcription: {str(e)}")
@@ -281,6 +283,7 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
                             video_path=downloaded_video_path,
                             language=language
                         )
+                        transcription_tool_used = "openai_whisper"
                         logger.info(f"Fallback transcription completed with OpenAI Whisper, got {len(segments)} segments")
                     except Exception as fallback_error:
                         logger.error(f"Fallback transcription also failed: {str(fallback_error)}")
@@ -293,6 +296,7 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
                         video_path=downloaded_video_path,
                         language=language
                     )
+                    transcription_tool_used = "openai_whisper"
                     logger.info(f"Transcription completed with OpenAI Whisper, got {len(segments)} segments")
                 except ImportError as ie:
                     # If OpenAI module is not available, try Replicate instead
@@ -304,6 +308,7 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
                             language=language,
                             batch_size=settings_obj.get("batch_size", 64)
                         )
+                        transcription_tool_used = "replicate_whisper"
                         logger.info(f"Fallback transcription completed with Replicate Whisper, got {len(segments)} segments")
                     except Exception as fallback_error:
                         logger.error(f"Fallback transcription also failed: {str(fallback_error)}")
@@ -319,6 +324,7 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
                             language=language,
                             batch_size=settings_obj.get("batch_size", 64)
                         )
+                        transcription_tool_used = "replicate_whisper"
                         logger.info(f"Fallback transcription completed with Replicate Whisper, got {len(segments)} segments")
                     except Exception as fallback_error:
                         logger.error(f"Fallback transcription also failed: {str(fallback_error)}")
@@ -329,10 +335,16 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
         
         # Adjust segment start times if needed
         if start_time > 0:
+            logger.info(f"Adjusting segment start times by {start_time} seconds")
             for segment in segments:
-                segment["start"] = max(segment["start"] + start_time, start_time)
+                segment["start"] = segment["start"] + start_time
                 segment["end"] = segment["end"] + start_time
-            logger.info(f"Adjusted segment timings to start at {start_time} seconds")
+            
+        # Ensure segments have minimum duration
+        min_duration = 1.0  # Minimum duration in seconds
+        for segment in segments:
+            if segment["end"] - segment["start"] < min_duration:
+                segment["end"] = segment["start"] + min_duration
         
         # Align script text with segments
         logger.info(f"Job {job_id}: Aligning script with transcription segments")
@@ -476,7 +488,8 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
                 }
             ],
             "run_time": round(run_time, 3),
-            "total_time": round(total_time, 3)
+            "total_time": round(total_time, 3),
+            "transcription_tool": transcription_tool_used
         }
         
         # Handle the caption_result which is a string path, not a dictionary
