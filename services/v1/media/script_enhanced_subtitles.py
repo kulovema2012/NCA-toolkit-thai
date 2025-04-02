@@ -9,6 +9,7 @@ from datetime import timedelta
 from typing import List, Dict, Tuple, Optional, Union
 from services.cloud_storage import upload_to_cloud_storage
 import re
+import tempfile
 
 # Import PyThaiNLP for better Thai word segmentation
 try:
@@ -348,102 +349,210 @@ def align_standard_text(script_text: str, subtitles: List[srt.Subtitle]) -> List
     
     return aligned_subtitles
 
-def enhance_subtitles_from_segments(script_text: str, segments: List[Dict], output_srt_path: str, upload_to_cloud: bool = True, min_start_time: float = 0.0) -> Union[str, Dict[str, str]]:
+def enhance_subtitles_from_segments(segments, script_text, language="en", settings=None):
     """
-    Create enhanced subtitles from transcription segments and a script.
-    This function will group segments to reduce the number of subtitles and improve synchronization.
+    Enhance subtitles from transcription segments and script text.
     
     Args:
-        script_text (str): The script text
-        segments (List[Dict]): List of transcription segments with start, end, and text
-        output_srt_path (str): Path to save the SRT file
-        upload_to_cloud (bool): Whether to upload the SRT file to cloud storage
-        min_start_time (float): Minimum start time for subtitles
-    
+        segments: List of transcription segments with start, end, and text
+        script_text: Script text to align with segments
+        language: Language code
+        settings: Additional settings
+        
     Returns:
-        str: Path to the SRT file
+        Tuple of (srt_path, ass_path)
     """
-    logger.info(f"Enhancing subtitles from {len(segments)} segments with script text of length {len(script_text)}")
-    
-    # Group segments to reduce the number of subtitles
-    grouped_segments = []
-    current_group = None
-    
-    # Parameters for subtitle grouping and timing
-    min_segment_duration = 1.0  # Minimum duration for a subtitle in seconds
-    max_segment_duration = 7.0  # Maximum duration for a subtitle in seconds
-    pre_display_buffer = 0.3    # Show subtitle this many seconds before voice starts
-    duration_extension_factor = 0.2  # Extend duration by this factor
-    min_gap_between_segments = 0.1  # Minimum gap between segments in seconds
-    
-    # Sort segments by start time to ensure proper ordering
-    segments = sorted(segments, key=lambda x: x["start"])
-    
-    for segment in segments:
-        # Skip segments with empty text
-        if not segment["text"].strip():
-            continue
-            
-        start_time = max(segment["start"] - pre_display_buffer, min_start_time)
-        end_time = segment["end"] * (1 + duration_extension_factor)  # Extend duration
+    try:
+        logger = logging.getLogger(__name__)
+        logger.info("Starting subtitle enhancement process")
         
-        # Ensure minimum segment duration
-        if end_time - start_time < min_segment_duration:
-            end_time = start_time + min_segment_duration
-            
-        # Ensure maximum segment duration
-        if end_time - start_time > max_segment_duration:
-            end_time = start_time + max_segment_duration
+        # Create a temporary directory for outputs
+        temp_dir = tempfile.mkdtemp()
+        logger.info(f"Created temporary directory: {temp_dir}")
         
-        # If this is the first segment or there's a significant gap, start a new group
-        if current_group is None or start_time > current_group["end"] + min_gap_between_segments:
-            if current_group is not None:
-                grouped_segments.append(current_group)
+        # Get settings
+        settings_obj = settings if settings else {}
+        font_name = settings_obj.get("font_name", "Arial")
+        font_size = settings_obj.get("font_size", 24)
+        max_width = settings_obj.get("max_width", 40)
+        
+        logger.info(f"Using font: {font_name}, size: {font_size}, max width: {max_width}")
+        
+        # Generate SRT from segments
+        srt_path = os.path.join(temp_dir, "subtitles.srt")
+        logger.info(f"Generating SRT file at: {srt_path}")
+        
+        with open(srt_path, "w", encoding="utf-8") as f:
+            for i, segment in enumerate(segments, 1):
+                start_time = segment.get("start", 0)
+                end_time = segment.get("end", 0)
+                text = segment.get("text", "").strip()
+                
+                # Format times as SRT format (HH:MM:SS,mmm)
+                start_formatted = format_time_srt(start_time)
+                end_formatted = format_time_srt(end_time)
+                
+                # Write SRT entry
+                f.write(f"{i}\n")
+                f.write(f"{start_formatted} --> {end_formatted}\n")
+                f.write(f"{text}\n\n")
+        
+        logger.info(f"Generated SRT file with {len(segments)} segments")
+        
+        # Convert SRT to ASS with enhanced formatting
+        ass_path = os.path.join(temp_dir, "subtitles.ass")
+        logger.info(f"Converting SRT to ASS at: {ass_path}")
+        
+        # Read SRT content
+        with open(srt_path, "r", encoding="utf-8") as f:
+            srt_content = f.read()
+        
+        # Parse SRT content
+        subtitle_entries = []
+        pattern = re.compile(r'(\d+)\n(\d{2}:\d{2}:\d{2},\d{3}) --> (\d{2}:\d{2}:\d{2},\d{3})\n([\s\S]*?)(?=\n\n|\Z)')
+        
+        for match in pattern.finditer(srt_content):
+            index = match.group(1)
+            start_time = match.group(2)
+            end_time = match.group(3)
+            text = match.group(4).strip()
             
-            current_group = {
-                "start": start_time,
-                "end": end_time,
-                "text": segment["text"],
-                "original_segments": [segment]
-            }
-        else:
-            # Otherwise, extend the current group
-            current_group["end"] = max(current_group["end"], end_time)
-            current_group["text"] += " " + segment["text"]
-            current_group["original_segments"].append(segment)
+            # Convert SRT time format to ASS time format
+            start_time_ass = convert_srt_time_to_ass(start_time)
+            end_time_ass = convert_srt_time_to_ass(end_time)
+            
+            # Process text based on language
+            if language == "th":
+                # For Thai, use word segmentation
+                try:
+                    from pythainlp.util import isthai
+                    from pythainlp.tokenize import word_tokenize
+                    
+                    # Process Thai text with word breaks
+                    lines = []
+                    current_line = ""
+                    words = word_tokenize(text, engine="newmm")
+                    
+                    for word in words:
+                        # Check if adding this word would exceed max width
+                        if len(current_line) + len(word) > max_width:
+                            lines.append(current_line)
+                            current_line = word
+                        else:
+                            if current_line:
+                                current_line += word
+                            else:
+                                current_line = word
+                    
+                    if current_line:
+                        lines.append(current_line)
+                    
+                    # Join lines with ASS line break
+                    text = "\\N".join(lines)
+                    logger.info(f"Processed Thai text with {len(lines)} lines")
+                    
+                except Exception as e:
+                    logger.error(f"Error in Thai text processing: {str(e)}")
+                    # Fall back to simple line breaks
+                    words = text.split()
+                    lines = []
+                    current_line = ""
+                    
+                    for word in words:
+                        if len(current_line) + len(word) + 1 > max_width:
+                            lines.append(current_line)
+                            current_line = word
+                        else:
+                            if current_line:
+                                current_line += " " + word
+                            else:
+                                current_line = word
+                    
+                    if current_line:
+                        lines.append(current_line)
+                    
+                    text = "\\N".join(lines)
+                    logger.warning(f"Fell back to simple line breaks, got {len(lines)} lines")
+            else:
+                # For other languages, use simple word wrapping
+                words = text.split()
+                lines = []
+                current_line = ""
+                
+                for word in words:
+                    if len(current_line) + len(word) + 1 > max_width:
+                        lines.append(current_line)
+                        current_line = word
+                    else:
+                        if current_line:
+                            current_line += " " + word
+                        else:
+                            current_line = word
+                
+                if current_line:
+                    lines.append(current_line)
+                
+                text = "\\N".join(lines)
+                logger.info(f"Processed {language} text with {len(lines)} lines")
+            
+            subtitle_entries.append({
+                "index": index,
+                "start": start_time_ass,
+                "end": end_time_ass,
+                "text": text
+            })
+        
+        logger.info(f"Parsed {len(subtitle_entries)} subtitle entries")
+        
+        # Generate ASS file
+        with open(ass_path, "w", encoding="utf-8") as f:
+            # Write ASS header
+            f.write("[Script Info]\n")
+            f.write("Title: Auto-generated subtitles\n")
+            f.write("ScriptType: v4.00+\n")
+            f.write("WrapStyle: 0\n")
+            f.write("ScaledBorderAndShadow: yes\n")
+            f.write("YCbCr Matrix: TV.601\n")
+            f.write("PlayResX: 1280\n")
+            f.write("PlayResY: 720\n\n")
+            
+            # Write Styles
+            f.write("[V4+ Styles]\n")
+            f.write("Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n")
+            f.write(f"Style: Default,{font_name},{font_size},&HFFFFFF,&HFFFFFF,&H000000,&HFF000000,1,0,0,0,100,100,0,0,1,2,0,2,20,20,20,1\n\n")
+            
+            # Write Events
+            f.write("[Events]\n")
+            f.write("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
+            
+            for entry in subtitle_entries:
+                f.write(f"Dialogue: 0,{entry['start']},{entry['end']},Default,,0,0,0,,{entry['text']}\n")
+        
+        logger.info(f"Generated ASS file with {len(subtitle_entries)} entries")
+        logger.info(f"Subtitle enhancement completed successfully")
+        
+        return srt_path, ass_path
+        
+    except Exception as e:
+        logger.error(f"Error in subtitle enhancement: {str(e)}")
+        raise
+
+def format_time_srt(time_in_seconds):
+    hours = int(time_in_seconds // 3600)
+    minutes = int((time_in_seconds % 3600) // 60)
+    seconds = int(time_in_seconds % 60)
+    milliseconds = int((time_in_seconds - int(time_in_seconds)) * 1000)
     
-    # Add the last group if it exists
-    if current_group is not None:
-        grouped_segments.append(current_group)
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d},{milliseconds:03d}"
+
+def convert_srt_time_to_ass(time_str):
+    parts = time_str.split(":")
+    hours = int(parts[0])
+    minutes = int(parts[1])
+    seconds_and_milliseconds = parts[2].split(",")
+    seconds = int(seconds_and_milliseconds[0])
+    milliseconds = int(seconds_and_milliseconds[1])
     
-    logger.info(f"Grouped {len(segments)} segments into {len(grouped_segments)} subtitle groups")
+    total_seconds = hours * 3600 + minutes * 60 + seconds + milliseconds / 1000
     
-    # Create SRT file from grouped segments
-    srt_subtitles = []
-    
-    for i, group in enumerate(grouped_segments):
-        # Create a subtitle with the grouped text
-        subtitle = srt.Subtitle(
-            index=i+1,
-            start=datetime.timedelta(seconds=group["start"]),
-            end=datetime.timedelta(seconds=group["end"]),
-            content=group["text"].strip()
-        )
-        srt_subtitles.append(subtitle)
-    
-    # Write SRT file
-    with open(output_srt_path, 'w', encoding='utf-8') as f:
-        f.write(srt.compose(srt_subtitles))
-    
-    logger.info(f"Created SRT file with {len(srt_subtitles)} subtitles at {output_srt_path}")
-    
-    # Upload to cloud if requested
-    if upload_to_cloud and output_srt_path.startswith('/tmp'):
-        try:
-            cloud_path = upload_file_to_cloud(output_srt_path)
-            logger.info(f"Uploaded SRT file to cloud: {cloud_path}")
-            return cloud_path
-        except Exception as e:
-            logger.error(f"Failed to upload SRT file to cloud: {str(e)}")
-    
-    return output_srt_path
+    return f"{total_seconds:.3f}"

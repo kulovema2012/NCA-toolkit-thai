@@ -65,9 +65,11 @@ def transcribe_with_replicate(audio_url: str, language: str = "th", batch_size: 
             # Extract audio using FFmpeg
             audio_file_path = os.path.join(temp_dir, "extracted_audio.mp3")
             try:
+                # Use higher quality settings for better transcription results
                 cmd = [
                     "ffmpeg", "-y", "-i", video_path, 
                     "-vn", "-acodec", "libmp3lame", "-ar", "44100", "-ac", "2", "-b:a", "192k",
+                    "-af", "loudnorm=I=-16:LRA=11:TP=-1.5",  # Normalize audio levels
                     audio_file_path
                 ]
                 logger.info(f"Extracting audio with command: {' '.join(cmd)}")
@@ -78,19 +80,33 @@ def transcribe_with_replicate(audio_url: str, language: str = "th", batch_size: 
                 
                 logger.info(f"Successfully extracted audio to {audio_file_path}")
                 
-                # Create a publicly accessible URL for the audio file
-                # Since we can't easily create a public URL in this context,
-                # we'll use the original video URL if it's a remote URL
-                if audio_url.startswith(('http://', 'https://')):
-                    logger.info(f"Using original remote URL: {audio_url}")
-                    extracted_audio_url = audio_url
-                else:
-                    # If we can't create a public URL, we'll need to inform the user
-                    logger.error("Replicate requires a publicly accessible URL for audio files")
-                    raise ValueError("Replicate requires a publicly accessible URL for audio. Please provide a public URL for your audio/video file.")
-                
-                logger.info(f"Using audio file at {extracted_audio_url}")
-                
+                # Upload the extracted audio to Google Cloud Storage
+                try:
+                    from services.cloud_storage import upload_to_cloud_storage
+                    
+                    # Upload the audio file to cloud storage
+                    logger.info("Uploading extracted audio to Google Cloud Storage...")
+                    cloud_audio_url = upload_to_cloud_storage(audio_file_path, f"audio/extracted_{os.path.basename(audio_file_path)}")
+                    
+                    if cloud_audio_url:
+                        logger.info(f"Successfully uploaded audio to cloud: {cloud_audio_url}")
+                        extracted_audio_url = cloud_audio_url
+                    else:
+                        logger.error("Failed to upload audio to cloud storage")
+                        # Fall back to using the original URL if it's remote
+                        if audio_url.startswith(('http://', 'https://')):
+                            logger.info(f"Using original remote URL: {audio_url}")
+                            extracted_audio_url = audio_url
+                        else:
+                            raise ValueError("Failed to create a publicly accessible URL for the audio")
+                except Exception as upload_error:
+                    logger.error(f"Error uploading to cloud storage: {str(upload_error)}")
+                    # Fall back to using the original URL if it's remote
+                    if audio_url.startswith(('http://', 'https://')):
+                        logger.info(f"Using original remote URL: {audio_url}")
+                        extracted_audio_url = audio_url
+                    else:
+                        raise ValueError(f"Failed to create a publicly accessible URL for the audio: {str(upload_error)}")
             except Exception as e:
                 logger.error(f"Error extracting audio: {str(e)}")
                 raise ValueError(f"Failed to extract audio from video: {str(e)}")

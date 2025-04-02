@@ -38,6 +38,7 @@ POST /api/v1/video/script-enhanced-auto-caption
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | transcription_tool | string | No | Tool to use for transcription. Options: "openai_whisper" (default) or "replicate_whisper". |
+| allow_fallback | boolean | No | Whether to allow fallback to the other transcription tool if the selected one fails (default: false). |
 | audio_url | string | No | URL to an audio file to use instead of extracting audio from the video. Must be publicly accessible. |
 | start_time | number | No | Time in seconds when subtitles should start appearing (default: 0). |
 | batch_size | number | No | Batch size for Replicate Whisper processing (default: 64). |
@@ -95,6 +96,7 @@ POST /api/v1/video/script-enhanced-auto-caption
   "language": "th",
   "settings": {
     "transcription_tool": "replicate_whisper",
+    "allow_fallback": false,
     "start_time": 2,
     "font_size": 28,
     "max_width": 36
@@ -130,8 +132,9 @@ POST /api/v1/video/script-enhanced-auto-caption
 
 - The API uses AI transcription to align the script with the audio timing.
 - The `video_url` and `audio_url` (if provided) must be publicly accessible URLs.
-- For Replicate Whisper, the audio/video URL must be accessible via HTTP/HTTPS.
+- For Replicate Whisper, the system will extract audio from video files and upload it to cloud storage to create a publicly accessible URL.
 - The `script_text` will be aligned with the transcription timing to create accurate subtitles.
 - Thai language is supported with specialized word segmentation for better readability.
 - Supported languages for Replicate Whisper include: english, spanish, french, german, italian, portuguese, dutch, russian, chinese, japanese, korean, arabic, hebrew, thai.
 - When using "th" as the language code, the system will use "thai" for Replicate or "th" for OpenAI Whisper.
+- Set `allow_fallback` to false if you want to ensure only your selected transcription tool is used.

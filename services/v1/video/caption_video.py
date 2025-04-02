@@ -723,12 +723,24 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, font_nam
             logger.error(f"FFmpeg error: {result.stderr}")
             return None
         
-        logger.info(f"Successfully added subtitles to video: {output_path}")
-        return output_path
+        logger.info(f"FFmpeg stdout: {result.stdout}")
+        logger.info(f"FFmpeg stderr: {result.stderr}")
         
+        # Check if output file was created
+        if os.path.exists(output_path):
+            output_size = os.path.getsize(output_path)
+            logger.info(f"Output file created successfully: {output_path} ({output_size} bytes)")
+            return output_path
+        else:
+            logger.error(f"Output file was not created: {output_path}")
+            raise FileNotFoundError(f"Output file was not created: {output_path}")
+            
+    except subprocess.CalledProcessError as e:
+        logger.error(f"FFmpeg error: {e.stderr}")
+        raise ValueError(f"FFmpeg error: {e.stderr}")
     except Exception as e:
         logger.error(f"Error adding subtitles to video: {str(e)}")
-        return None
+        raise
 
 def process_srt_file(subtitle_path, max_words_per_line=7, is_thai=False):
     """

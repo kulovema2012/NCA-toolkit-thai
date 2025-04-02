@@ -223,10 +223,12 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
     
     # Get transcription tool from settings
     transcription_tool = settings_obj.get("transcription_tool", "openai_whisper")
+    allow_fallback = settings_obj.get("allow_fallback", False)  # New parameter to control fallback
+    start_time = float(settings_obj.get("start_time", 0))
     logger.info(f"Using transcription tool: {transcription_tool}")
+    logger.info(f"Allow fallback: {allow_fallback}")
     
     # Get start time if specified
-    start_time = float(settings_obj.get("start_time", 0.0))
     logger.info(f"Using start time: {start_time} seconds")
     
     start_time = time.time()
@@ -263,9 +265,12 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
                             logger.info(f"Using video URL instead: {video_url}")
                             audio_url = video_url
                         else:
-                            raise ValueError("Replicate requires a publicly accessible URL for audio. Please provide a public URL.")
+                            error_msg = "Replicate requires a publicly accessible URL for audio. Please provide a public URL."
+                            logger.error(error_msg)
+                            raise ValueError(error_msg)
                         
                     # Use Replicate for transcription
+                    logger.info(f"Using Replicate Whisper for transcription with URL: {audio_url}")
                     segments = transcribe_with_replicate(
                         audio_url=audio_url,
                         language=language,
@@ -275,22 +280,28 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
                     logger.info(f"Transcription completed with Replicate Whisper, got {len(segments)} segments")
                 except Exception as e:
                     logger.error(f"Error in Replicate transcription: {str(e)}")
-                    # If Replicate fails, try OpenAI as fallback
-                    logger.warning("Replicate transcription failed, trying OpenAI Whisper as fallback...")
-                    try:
-                        from services.v1.media.transcribe import transcribe_with_whisper
-                        segments = transcribe_with_whisper(
-                            video_path=downloaded_video_path,
-                            language=language
-                        )
-                        transcription_tool_used = "openai_whisper"
-                        logger.info(f"Fallback transcription completed with OpenAI Whisper, got {len(segments)} segments")
-                    except Exception as fallback_error:
-                        logger.error(f"Fallback transcription also failed: {str(fallback_error)}")
-                        raise ValueError(f"Transcription failed with both Replicate and OpenAI: {str(e)} and {str(fallback_error)}")
+                    
+                    # Only fall back if allowed
+                    if allow_fallback:
+                        logger.warning("Replicate transcription failed, trying OpenAI Whisper as fallback...")
+                        try:
+                            from services.v1.media.transcribe import transcribe_with_whisper
+                            segments = transcribe_with_whisper(
+                                video_path=downloaded_video_path,
+                                language=language
+                            )
+                            transcription_tool_used = "openai_whisper"
+                            logger.info(f"Fallback transcription completed with OpenAI Whisper, got {len(segments)} segments")
+                        except Exception as fallback_error:
+                            logger.error(f"Fallback transcription also failed: {str(fallback_error)}")
+                            raise ValueError(f"Transcription failed with Replicate: {str(e)}\nFallback also failed: {str(fallback_error)}")
+                    else:
+                        # If fallback is not allowed, raise the original error
+                        raise ValueError(f"Replicate transcription failed and fallback is disabled: {str(e)}")
             else:
                 # Default to OpenAI Whisper
                 try:
+                    logger.info("Using OpenAI Whisper for transcription")
                     from services.v1.media.transcribe import transcribe_with_whisper
                     segments = transcribe_with_whisper(
                         video_path=downloaded_video_path,
@@ -298,37 +309,34 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
                     )
                     transcription_tool_used = "openai_whisper"
                     logger.info(f"Transcription completed with OpenAI Whisper, got {len(segments)} segments")
-                except ImportError as ie:
-                    # If OpenAI module is not available, try Replicate instead
-                    logger.warning(f"OpenAI module not available: {str(ie)}. Trying Replicate Whisper instead...")
-                    try:
-                        from services.v1.transcription.replicate_whisper import transcribe_with_replicate
-                        segments = transcribe_with_replicate(
-                            audio_url=video_url,
-                            language=language,
-                            batch_size=settings_obj.get("batch_size", 64)
-                        )
-                        transcription_tool_used = "replicate_whisper"
-                        logger.info(f"Fallback transcription completed with Replicate Whisper, got {len(segments)} segments")
-                    except Exception as fallback_error:
-                        logger.error(f"Fallback transcription also failed: {str(fallback_error)}")
-                        raise ValueError(f"Transcription failed with both OpenAI and Replicate: {str(ie)} and {str(fallback_error)}")
                 except Exception as e:
                     logger.error(f"Error in OpenAI transcription: {str(e)}")
-                    # If OpenAI fails for other reasons, try Replicate as fallback
-                    logger.warning("OpenAI transcription failed, trying Replicate Whisper as fallback...")
-                    try:
-                        from services.v1.transcription.replicate_whisper import transcribe_with_replicate
-                        segments = transcribe_with_replicate(
-                            audio_url=video_url,
-                            language=language,
-                            batch_size=settings_obj.get("batch_size", 64)
-                        )
-                        transcription_tool_used = "replicate_whisper"
-                        logger.info(f"Fallback transcription completed with Replicate Whisper, got {len(segments)} segments")
-                    except Exception as fallback_error:
-                        logger.error(f"Fallback transcription also failed: {str(fallback_error)}")
-                        raise ValueError(f"Transcription failed with both OpenAI and Replicate: {str(e)} and {str(fallback_error)}")
+                    
+                    # Only fall back if allowed
+                    if allow_fallback:
+                        logger.warning("OpenAI transcription failed, trying Replicate Whisper as fallback...")
+                        try:
+                            from services.v1.transcription.replicate_whisper import transcribe_with_replicate
+                            
+                            # Ensure we have a remote URL for Replicate
+                            if video_url.startswith(('http://', 'https://')):
+                                audio_url = video_url
+                                segments = transcribe_with_replicate(
+                                    audio_url=audio_url,
+                                    language=language,
+                                    batch_size=settings_obj.get("batch_size", 64)
+                                )
+                                transcription_tool_used = "replicate_whisper"
+                                logger.info(f"Fallback transcription completed with Replicate Whisper, got {len(segments)} segments")
+                            else:
+                                logger.error("Cannot fall back to Replicate: video URL is not a remote URL")
+                                raise ValueError("OpenAI transcription failed and cannot fall back to Replicate: video URL is not a remote URL")
+                        except Exception as fallback_error:
+                            logger.error(f"Fallback transcription also failed: {str(fallback_error)}")
+                            raise ValueError(f"Transcription failed with OpenAI: {str(e)}\nFallback also failed: {str(fallback_error)}")
+                    else:
+                        # If fallback is not allowed, raise the original error
+                        raise ValueError(f"OpenAI transcription failed and fallback is disabled: {str(e)}")
         except Exception as e:
             logger.error(f"Error in transcription: {str(e)}")
             raise ValueError(f"Transcription error: {str(e)}")
