@@ -142,6 +142,7 @@ def create_app():
     from routes.v1.video.auto_caption_video import auto_caption_video_bp
     from routes.v1.video.openai_auto_caption import openai_auto_caption_bp
     from routes.v1.video.script_enhanced_auto_caption import script_enhanced_auto_caption_bp
+    from routes.v1.video.replicate_auto_caption import replicate_auto_caption_bp
     from routes.v1.image.transform.image_to_video import v1_image_transform_video_bp
     from routes.v1.toolkit.test import v1_toolkit_test_bp
     from routes.v1.toolkit.authenticate import v1_toolkit_auth_bp
@@ -155,6 +156,7 @@ def create_app():
     app.register_blueprint(auto_caption_video_bp)
     app.register_blueprint(openai_auto_caption_bp)
     app.register_blueprint(script_enhanced_auto_caption_bp)
+    app.register_blueprint(replicate_auto_caption_bp)
     app.register_blueprint(v1_image_transform_video_bp)
     app.register_blueprint(v1_toolkit_test_bp)
     app.register_blueprint(v1_toolkit_auth_bp)

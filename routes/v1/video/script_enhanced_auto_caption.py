@@ -393,58 +393,31 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
         
         # Step 3: Add subtitles to video
         logger.info(f"Job {job_id}: Adding subtitles to video")
+        
+        # Create the output path
+        output_path = os.path.join(temp_dir, f"captioned_{job_id}.mp4")
+        
         # Prepare parameters for add_subtitles_to_video
+        logger.info(f"Job {job_id}: Calling add_subtitles_to_video with parameters:")
+        logger.info(f"Job {job_id}: video_path: {downloaded_video_path}")
+        logger.info(f"Job {job_id}: subtitle_path: {subtitle_path}")
+        logger.info(f"Job {job_id}: output_path: {output_path}")
+        
+        # Get font settings
+        font_name = settings_obj.get("font_name", "Arial")
+        font_size = settings_obj.get("font_size", 24)
+        
+        logger.info(f"Job {job_id}: font_name: {font_name}")
+        logger.info(f"Job {job_id}: font_size: {font_size}")
+        
+        # Only include the parameters that the function accepts
         add_subtitles_params = {
-            "video_path": downloaded_video_path,  # Make sure we're using the local path
+            "video_path": downloaded_video_path,
             "subtitle_path": subtitle_path,
             "output_path": output_path,
-            "job_id": job_id
+            "font_size": font_size,
+            "font_name": font_name
         }
-        
-        # Add all styling parameters
-        supported_params = {
-            "font_name": settings.get("font_name", "Sarabun"),
-            "font_size": settings.get("font_size", 24),
-            "margin_v": settings.get("margin_v", 30),
-            "subtitle_style": settings.get("subtitle_style", "classic"),
-            "max_width": settings.get("max_width"),
-            "position": settings.get("position", "bottom"),
-            "line_color": settings.get("line_color"),
-            "word_color": settings.get("word_color"),
-            "outline_color": settings.get("outline_color"),
-            "all_caps": settings.get("all_caps", False),
-            "max_words_per_line": settings.get("max_words_per_line"),
-            "x": settings.get("x"),
-            "y": settings.get("y"),
-            "alignment": settings.get("alignment", "center"),
-            "bold": settings.get("bold", False),
-            "italic": settings.get("italic", False),
-            "underline": settings.get("underline", False),
-            "strikeout": settings.get("strikeout", False),
-            "shadow": settings.get("shadow", False),
-            "outline": settings.get("outline", False),
-            "back_color": settings.get("back_color"),
-            "margin_l": settings.get("margin_l"),
-            "margin_r": settings.get("margin_r"),
-            "encoding": settings.get("encoding")
-        }
-        
-        # Filter out None values
-        supported_params = {k: v for k, v in supported_params.items() if v is not None}
-        
-        # Update the parameters
-        add_subtitles_params.update(supported_params)
-        
-        # Verify that the files exist before calling add_subtitles_to_video
-        if not os.path.exists(downloaded_video_path):
-            error_message = f"Video file not found at path: {downloaded_video_path}"
-            logger.error(f"Job {job_id}: {error_message}")
-            raise ValueError(error_message)
-            
-        if not os.path.exists(subtitle_path):
-            error_message = f"Subtitle file not found at path: {subtitle_path}"
-            logger.error(f"Job {job_id}: {error_message}")
-            raise ValueError(error_message)
         
         # Log the parameters we're passing to add_subtitles_to_video
         logger.info(f"Job {job_id}: Calling add_subtitles_to_video with parameters:")
