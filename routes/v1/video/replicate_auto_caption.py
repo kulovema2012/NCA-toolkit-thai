@@ -61,27 +61,8 @@ def replicate_auto_caption():
         # Generate job ID
         job_id = f"replicate_auto_caption_{int(time.time())}"
         
-        # Define the task function
-        def task_func():
-            try:
-                result = process_replicate_auto_caption(
-                    video_url=video_url,
-                    script_text=script_text,
-                    language=language,
-                    settings=settings,
-                    job_id=job_id
-                )
-                return result, "replicate_auto_caption", 200
-            except Exception as e:
-                logger.error(f"Error in replicate-auto-caption task: {str(e)}")
-                logger.error(traceback.format_exc())
-                return str(e), "replicate_auto_caption", 500
-        
-        # Use the queue system if available
-        if hasattr(request.app, 'queue_task'):
-            return request.app.queue_task()(task_func)()
-        else:
-            # Direct processing if queue is not available
+        # Process the request directly (no queue)
+        try:
             result = process_replicate_auto_caption(
                 video_url=video_url,
                 script_text=script_text,
@@ -90,6 +71,10 @@ def replicate_auto_caption():
                 job_id=job_id
             )
             return jsonify(result)
+        except Exception as e:
+            logger.error(f"Error in replicate-auto-caption task: {str(e)}")
+            logger.error(traceback.format_exc())
+            return jsonify({"status": "error", "message": str(e)}), 500
         
     except Exception as e:
         logger.error(f"Error in replicate-auto-caption: {str(e)}")
