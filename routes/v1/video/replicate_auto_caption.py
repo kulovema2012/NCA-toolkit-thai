@@ -8,7 +8,7 @@ import json
 from typing import Dict, List, Any, Optional, Union
 from flask import Blueprint, request, jsonify
 
-from services.v1.media.download import download_file
+from services.file_management import download_file
 from services.v1.transcription.replicate_whisper import transcribe_with_replicate
 from services.v1.media.script_enhanced_subtitles import enhance_subtitles_from_segments
 from services.v1.video.caption_video import add_subtitles_to_video
@@ -61,17 +61,35 @@ def replicate_auto_caption():
         # Generate job ID
         job_id = f"replicate_auto_caption_{int(time.time())}"
         
-        # Process the request
-        result = process_replicate_auto_caption(
-            video_url=video_url,
-            script_text=script_text,
-            language=language,
-            settings=settings,
-            job_id=job_id
-        )
+        # Define the task function
+        def task_func():
+            try:
+                result = process_replicate_auto_caption(
+                    video_url=video_url,
+                    script_text=script_text,
+                    language=language,
+                    settings=settings,
+                    job_id=job_id
+                )
+                return result, "replicate_auto_caption", 200
+            except Exception as e:
+                logger.error(f"Error in replicate-auto-caption task: {str(e)}")
+                logger.error(traceback.format_exc())
+                return str(e), "replicate_auto_caption", 500
         
-        # Return the result
-        return jsonify(result)
+        # Use the queue system if available
+        if hasattr(request.app, 'queue_task'):
+            return request.app.queue_task()(task_func)()
+        else:
+            # Direct processing if queue is not available
+            result = process_replicate_auto_caption(
+                video_url=video_url,
+                script_text=script_text,
+                language=language,
+                settings=settings,
+                job_id=job_id
+            )
+            return jsonify(result)
         
     except Exception as e:
         logger.error(f"Error in replicate-auto-caption: {str(e)}")
