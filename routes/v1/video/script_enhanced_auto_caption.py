@@ -3,18 +3,20 @@ import os
 import logging
 import json
 from datetime import datetime
-from services.v1.media.transcribe import transcribe_with_whisper
-from services.v1.media.script_enhanced_subtitles import enhance_subtitles_from_segments
-from services.v1.video.caption_video import add_subtitles_to_video
-from services.v1.transcription.replicate_whisper import transcribe_with_replicate
-from services.webhook import send_webhook
-from services.file_management import download_file
 import time
 import threading
 import tempfile
 import traceback
 import shutil
 import uuid
+
+from services.v1.media.transcribe import transcribe_with_whisper
+from services.v1.media.script_enhanced_subtitles import enhance_subtitles_from_segments
+from services.v1.video.caption_video import add_subtitles_to_video
+from services.v1.transcription.replicate_whisper import transcribe_with_replicate
+from services.v1.subtitles.thai_text_wrapper import create_srt_file, is_thai_text
+from services.webhook import send_webhook
+from services.file_management import download_file
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -60,7 +62,9 @@ def script_enhanced_auto_caption():
         "encoding": "Encoding for subtitles",
         "min_start_time": "Minimum start time for subtitles",
         "transcription_tool": "Transcription tool to use (replicate_whisper or openai_whisper)",
-        "start_time": "Start time for transcription (in seconds)"
+        "start_time": "Start time for transcription (in seconds)",
+        "subtitle_delay": "Subtitle delay in seconds",
+        "max_chars_per_line": "Maximum characters per subtitle line"
     }
     """
     try:
@@ -85,6 +89,8 @@ def script_enhanced_auto_caption():
         webhook_url = data.get("webhook_url", "")
         include_srt = data.get("include_srt", False)
         min_start_time = data.get("min_start_time", 0.0)  # Default to 0.0 seconds
+        subtitle_delay = data.get("subtitle_delay", 0.0)  # Default to 0.0 seconds
+        max_chars_per_line = data.get("max_chars_per_line", 30)  # Default to 30 characters per line
         
         # Always use cloud storage for responses
         response_type = "cloud"
@@ -171,7 +177,9 @@ def script_enhanced_auto_caption():
                 job_id=job_id,
                 response_type=response_type,
                 include_srt=include_srt,
-                min_start_time=min_start_time
+                min_start_time=min_start_time,
+                subtitle_delay=subtitle_delay,
+                max_chars_per_line=max_chars_per_line
             )
             return jsonify(result)
         except ValueError as e:
@@ -188,7 +196,7 @@ def script_enhanced_auto_caption():
         logger.error(traceback.format_exc())
         return jsonify({"status": "error", "message": f"Unexpected error: {str(e)}"}), 500
 
-def process_script_enhanced_auto_caption(video_url, script_text, language="en", settings=None, output_path=None, webhook_url=None, job_id=None, response_type="cloud", include_srt=False, min_start_time=0.0):
+def process_script_enhanced_auto_caption(video_url, script_text, language="en", settings=None, output_path=None, webhook_url=None, job_id=None, response_type="cloud", include_srt=False, min_start_time=0.0, subtitle_delay=0.0, max_chars_per_line=30):
     """
     Process script-enhanced auto-captioning.
     
@@ -203,6 +211,8 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
         response_type (str, optional): Type of response ("direct" or "cloud")
         include_srt (bool, optional): Whether to include SRT URL in the response
         min_start_time (float, optional): Minimum start time for subtitles
+        subtitle_delay (float, optional): Subtitle delay in seconds
+        max_chars_per_line (int, optional): Maximum characters per subtitle line
         
     Returns:
         dict: Response with captioned video URL and metadata
@@ -225,8 +235,12 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
     transcription_tool = settings_obj.get("transcription_tool", "openai_whisper")
     allow_fallback = settings_obj.get("allow_fallback", False)  # New parameter to control fallback
     start_time = float(settings_obj.get("start_time", 0))
+    subtitle_delay = float(settings_obj.get("subtitle_delay", 0))
+    max_chars_per_line = int(settings_obj.get("max_chars_per_line", 30))
     logger.info(f"Using transcription tool: {transcription_tool}")
     logger.info(f"Allow fallback: {allow_fallback}")
+    logger.info(f"Using subtitle delay: {subtitle_delay} seconds")
+    logger.info(f"Using max characters per line: {max_chars_per_line}")
     
     # Get start time if specified
     logger.info(f"Using start time: {start_time} seconds")
@@ -384,6 +398,65 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
             )
             
             logger.info(f"Generated subtitle files: SRT={srt_path}, ASS={ass_path}")
+            
+            # If Thai language and subtitle_delay is specified, create a new SRT file with the delay
+            if is_thai_text(script_text) and subtitle_delay > 0:
+                logger.info(f"Thai text detected, applying subtitle delay of {subtitle_delay} seconds")
+                delayed_srt_path = os.path.join(os.path.dirname(srt_path), f"delayed_{os.path.basename(srt_path)}")
+                
+                # Parse the original SRT file
+                with open(srt_path, 'r', encoding='utf-8') as f:
+                    srt_content = f.read()
+                
+                # Extract segments from SRT content
+                import re
+                pattern = r'(\d+)\n(\d{2}:\d{2}:\d{2},\d{3}) --> (\d{2}:\d{2}:\d{2},\d{3})\n((?:.+\n)+)'
+                matches = re.findall(pattern, srt_content, re.MULTILINE)
+                
+                segments_from_srt = []
+                for match in matches:
+                    index, start_time_str, end_time_str, text = match
+                    
+                    # Convert SRT time format to seconds
+                    def time_to_seconds(time_str):
+                        h, m, s = time_str.replace(',', '.').split(':')
+                        return int(h) * 3600 + int(m) * 60 + float(s)
+                    
+                    start_time = time_to_seconds(start_time_str)
+                    end_time = time_to_seconds(end_time_str)
+                    
+                    segments_from_srt.append({
+                        "start": start_time,
+                        "end": end_time,
+                        "text": text.strip()
+                    })
+                
+                # Create a new SRT file with the delay and improved text wrapping
+                delayed_srt_path = create_srt_file(
+                    path=delayed_srt_path,
+                    segments=segments_from_srt,
+                    delay_seconds=subtitle_delay,
+                    max_chars_per_line=max_chars_per_line
+                )
+                
+                logger.info(f"Created delayed SRT file with improved Thai text wrapping: {delayed_srt_path}")
+                
+                # Use the delayed SRT file for captioning
+                srt_path = delayed_srt_path
+                
+                # Convert the delayed SRT to ASS for better styling
+                from services.v1.video.caption_video import convert_srt_to_ass_for_thai
+                delayed_ass_path = delayed_srt_path.replace('.srt', '.ass')
+                convert_srt_to_ass_for_thai(
+                    srt_path=delayed_srt_path,
+                    font_name=subtitle_settings.get("font_name"),
+                    font_size=subtitle_settings.get("font_size"),
+                    max_words_per_line=max_chars_per_line
+                )
+                
+                if os.path.exists(delayed_ass_path):
+                    logger.info(f"Created delayed ASS file: {delayed_ass_path}")
+                    ass_path = delayed_ass_path
             
             # Use the ASS file for captioning
             subtitle_path = ass_path
