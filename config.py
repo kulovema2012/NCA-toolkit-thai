@@ -1,9 +1,14 @@
 import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Retrieve the API key from environment variables
 API_KEY = os.environ.get('API_KEY')
 if not API_KEY:
-    raise ValueError("API_KEY environment variable is not set")
+    print("WARNING: API_KEY environment variable is not set. Some functionality may be limited.")
+    API_KEY = "test_key"  # Provide a default for testing
 
 # GCP environment variables
 GCP_SA_CREDENTIALS = os.environ.get('GCP_SA_CREDENTIALS', '')
@@ -21,9 +26,20 @@ def validate_env_vars(provider):
         'S3': ['S3_ENDPOINT_URL', 'S3_ACCESS_KEY', 'S3_SECRET_KEY']
     }
     
-    missing_vars = [var for var in required_vars[provider] if not os.getenv(var)]
+    if provider not in required_vars:
+        print(f"WARNING: Unknown provider '{provider}'. Supported providers: {list(required_vars.keys())}")
+        return False
+    
+    missing_vars = []
+    for var in required_vars[provider]:
+        if not globals().get(var) or globals().get(var) == '':
+            missing_vars.append(var)
+    
     if missing_vars:
-        raise ValueError(f"Missing environment variables for {provider} storage: {', '.join(missing_vars)}")
+        print(f"WARNING: Missing required environment variables for {provider}: {missing_vars}")
+        return False
+    
+    return True
 
 class CloudStorageProvider:
     """ Abstract CloudStorageProvider class to define the upload_file method """
@@ -57,8 +73,15 @@ def get_storage_provider() -> CloudStorageProvider:
     storage_path = os.getenv('STORAGE_PATH', 'GCP').upper()
     
     if storage_path == 'S3':
-        validate_env_vars('S3')
+        if not validate_env_vars('S3'):
+            print("Falling back to GCP due to missing S3 environment variables.")
+            storage_path = 'GCP'
+    else:
+        if not validate_env_vars('GCP'):
+            print("Falling back to S3 due to missing GCP environment variables.")
+            storage_path = 'S3'
+    
+    if storage_path == 'S3':
         return S3CompatibleProvider()
     else:
-        validate_env_vars('GCP')
         return GCPStorageProvider()

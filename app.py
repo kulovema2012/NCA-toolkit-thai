@@ -1,9 +1,15 @@
+import os
+import sys
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
+
 from flask import Flask, request
 from queue import Queue
 from services.webhook import send_webhook
 import threading
 import uuid
-import os
 import time
 from version import BUILD_NUMBER  # Import the BUILD_NUMBER
 

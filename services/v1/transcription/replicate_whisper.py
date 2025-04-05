@@ -5,12 +5,32 @@ import replicate
 import tempfile
 import subprocess
 import requests
+import time
 from typing import Dict, List, Optional
 from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
+# Updated supported languages list - Replicate Whisper uses full language names
 SUPPORTED_LANGUAGES = ["english", "spanish", "french", "german", "italian", "portuguese", "dutch", "russian", "chinese", "japanese", "korean", "arabic", "hebrew", "thai"]
+
+# Language code to full name mapping
+LANGUAGE_CODE_MAP = {
+    "en": "english",
+    "es": "spanish",
+    "fr": "french",
+    "de": "german",
+    "it": "italian",
+    "pt": "portuguese",
+    "nl": "dutch",
+    "ru": "russian",
+    "zh": "chinese",
+    "ja": "japanese",
+    "ko": "korean",
+    "ar": "arabic",
+    "he": "hebrew",
+    "th": "thai"
+}
 
 def transcribe_with_replicate(audio_url: str, language: str = "th", batch_size: int = 64) -> List[Dict]:
     """
@@ -115,27 +135,77 @@ def transcribe_with_replicate(audio_url: str, language: str = "th", batch_size: 
         final_audio_url = extracted_audio_url if extracted_audio_url else audio_url
         logger.info(f"Using audio URL for transcription: {final_audio_url}")
         
+        # Map language code to full language name if needed
+        replicate_language = LANGUAGE_CODE_MAP.get(language.lower(), language.lower())
+        if replicate_language not in SUPPORTED_LANGUAGES:
+            logger.warning(f"Language '{language}' not directly supported, defaulting to 'thai'")
+            replicate_language = "thai"
+        
+        logger.info(f"Using language for Replicate: {replicate_language}")
+        
         # Run the model
         input_params = {
             "audio": final_audio_url,
             "batch_size": batch_size,
-            "language": language if language in SUPPORTED_LANGUAGES else "english",
+            "language": replicate_language,
             "task": "transcribe",
             "timestamp": "chunk",
             "diarise_audio": False
         }
         
         logger.info(f"Calling Replicate with parameters: {input_params}")
-        output = replicate.run(
-            "vaibhavs10/incredibly-fast-whisper:3ab86df6c8f54c11309d4d1f930ac292bad43ace52d10c80d87eb258b3c9f79c",
-            input=input_params
-        )
+        
+        try:
+            # Create a prediction
+            prediction = replicate.predictions.create(
+                version="vaibhavs10/incredibly-fast-whisper:d5dfa8cfa4c0a98d0e9f68b0b44cfc143b89231d4dcc1c2e2c0d8d5369f2d2fd",
+                input=input_params
+            )
+            
+            # Wait for the prediction to complete
+            logger.info(f"Prediction created with ID: {prediction.id}")
+            logger.info("Waiting for prediction to complete...")
+            
+            # Poll for completion
+            max_wait_time = 300  # Maximum wait time in seconds
+            poll_interval = 5    # Poll interval in seconds
+            wait_time = 0
+            
+            while prediction.status != "succeeded" and wait_time < max_wait_time:
+                time.sleep(poll_interval)
+                wait_time += poll_interval
+                
+                # Refresh the prediction status
+                prediction = replicate.predictions.get(prediction.id)
+                logger.info(f"Prediction status: {prediction.status}, waited {wait_time}s")
+                
+                if prediction.status == "failed":
+                    error_message = prediction.error or "Unknown error"
+                    logger.error(f"Prediction failed: {error_message}")
+                    raise ValueError(f"Replicate prediction failed: {error_message}")
+            
+            if wait_time >= max_wait_time and prediction.status != "succeeded":
+                logger.error(f"Prediction timed out after {max_wait_time} seconds")
+                raise ValueError(f"Replicate prediction timed out after {max_wait_time} seconds")
+            
+            # Get the output
+            output = prediction.output
+            
+        except Exception as e:
+            logger.error(f"Error during Replicate API call: {str(e)}")
+            raise ValueError(f"Replicate API error: {str(e)}")
         
         logger.info("Transcription completed successfully")
         logger.info(f"Raw output: {output}")
         
         # Process the output into segments
         segments = []
+        
+        # Handle different output formats
+        if output is None:
+            logger.error("Replicate returned None as output")
+            raise ValueError("Replicate returned empty output")
+            
         if isinstance(output, dict) and "segments" in output:
             raw_segments = output["segments"]
             for segment in raw_segments:
@@ -148,15 +218,18 @@ def transcribe_with_replicate(audio_url: str, language: str = "th", batch_size: 
             # If no segments, create a single segment with the full text
             text = output.get("text", "")
             segments = [{"start": 0, "end": 10, "text": text}]
-        else:
-            logger.warning(f"Unexpected output format from Replicate: {output}")
-            # Try to extract any text we can find
-            if isinstance(output, str):
-                segments = [{"start": 0, "end": 10, "text": output.strip()}]
-            elif isinstance(output, list) and len(output) > 0:
-                segments = [{"start": 0, "end": 10, "text": str(output[0]).strip()}]
-            else:
-                raise ValueError("Could not extract any text from Replicate output")
+        elif isinstance(output, list) and len(output) > 0:
+            # Some versions of the model return a list of segments directly
+            for segment in output:
+                if isinstance(segment, dict):
+                    segments.append({
+                        "start": float(segment.get("start", 0)),
+                        "end": float(segment.get("end", 0)),
+                        "text": segment.get("text", "").strip()
+                    })
+        elif isinstance(output, str):
+            # If the output is just a string, use it as a single segment
+            segments = [{"start": 0, "end": 10, "text": output.strip()}]
             
         logger.info(f"Generated {len(segments)} segments")
         
