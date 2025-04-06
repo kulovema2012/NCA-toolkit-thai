@@ -9,6 +9,7 @@ import tempfile
 import traceback
 import shutil
 import uuid
+import sys
 
 from services.v1.media.transcribe import transcribe_with_whisper
 from services.v1.media.script_enhanced_subtitles import enhance_subtitles_from_segments
@@ -23,6 +24,58 @@ logger = logging.getLogger(__name__)
 
 # Create blueprint
 script_enhanced_auto_caption_bp = Blueprint('script_enhanced_auto_caption', __name__, url_prefix='/api/v1/video')
+
+@script_enhanced_auto_caption_bp.route('/debug-env', methods=['GET'])
+def debug_environment():
+    """
+    Debug endpoint to check environment variables and API tokens.
+    Only returns masked tokens for security.
+    """
+    try:
+        # Get all environment variable names (sorted)
+        env_vars = sorted(os.environ.keys())
+        
+        # Check for specific API tokens (masked)
+        api_tokens = {}
+        token_vars = ["REPLICATE_API_TOKEN", "REPLICATE_API_KEY", "REPLICATE_TOKEN", "OPENAI_API_KEY"]
+        
+        for var in token_vars:
+            token = os.environ.get(var)
+            if token:
+                # Mask the token for security
+                masked_token = token[:4] + "..." + token[-4:] if len(token) > 8 else "***"
+                api_tokens[var] = f"{masked_token} (length: {len(token)})"
+            else:
+                api_tokens[var] = "Not set"
+        
+        # Check if replicate module is properly initialized
+        replicate_status = "Available"
+        try:
+            import replicate
+            replicate_token = replicate.api_token
+            if replicate_token:
+                masked_replicate = replicate_token[:4] + "..." + replicate_token[-4:] if len(replicate_token) > 8 else "***"
+                replicate_status = f"Initialized with token: {masked_replicate}"
+            else:
+                replicate_status = "Available but no token set"
+        except ImportError:
+            replicate_status = "Module not available"
+        except Exception as e:
+            replicate_status = f"Error: {str(e)}"
+        
+        return jsonify({
+            "status": "success",
+            "environment_variables": env_vars,
+            "api_tokens": api_tokens,
+            "replicate_status": replicate_status,
+            "python_version": sys.version,
+            "timestamp": datetime.now().isoformat()
+        }), 200
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": f"Error checking environment: {str(e)}"
+        }), 500
 
 @script_enhanced_auto_caption_bp.route('/script-enhanced-auto-caption', methods=['POST'])
 def script_enhanced_auto_caption():

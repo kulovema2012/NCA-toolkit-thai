@@ -45,14 +45,31 @@ def transcribe_with_replicate(audio_url: str, language: str = "th", batch_size: 
         List of transcription segments with start, end, and text
     """
     try:
-        # Get API key from environment
-        api_key = os.environ.get("REPLICATE_API_TOKEN")
-        if not api_key:
-            logger.error("REPLICATE_API_TOKEN not found in environment variables")
-            raise ValueError("REPLICATE_API_TOKEN not set")
-            
-        # Set up the API key
+        # Try multiple possible environment variable names for the Replicate API token
+        api_token_vars = ["REPLICATE_API_TOKEN", "REPLICATE_API_KEY", "REPLICATE_TOKEN"]
+        api_key = None
+        
+        # Check each possible environment variable
+        for var_name in api_token_vars:
+            token = os.environ.get(var_name)
+            if token:
+                api_key = token
+                logger.info(f"Found Replicate API token in {var_name}")
+                break
+                
+        # Log token status (without revealing the full token)
+        if api_key:
+            masked_token = api_key[:4] + "..." + api_key[-4:] if len(api_key) > 8 else "***"
+            logger.info(f"Using Replicate API token: {masked_token}")
+        else:
+            # List all environment variables (without values) for debugging
+            env_vars = sorted(os.environ.keys())
+            logger.error(f"Replicate API token not found. Available environment variables: {env_vars}")
+            raise ValueError("Replicate API token not found. Please set the REPLICATE_API_TOKEN environment variable.")
+        
+        # Set the API token for the replicate library
         os.environ["REPLICATE_API_TOKEN"] = api_key
+        replicate.api_token = api_key  # Also set it directly on the replicate module
         
         logger.info(f"Processing audio/video for Replicate Incredibly Fast Whisper: {audio_url}")
         
