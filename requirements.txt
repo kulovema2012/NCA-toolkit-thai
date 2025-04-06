@@ -22,3 +22,4 @@ matplotlib
 jsonschema
 pythainlp>=3.1.2
 replicate==0.18.0
+python-dotenv==1.1.0
