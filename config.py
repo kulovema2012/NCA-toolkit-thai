@@ -1,5 +1,15 @@
 import os
-from dotenv import load_dotenv
+import sys
+
+# Try to import dotenv, but continue if not available
+try:
+    from dotenv import load_dotenv
+    # Load environment variables from .env file
+    load_dotenv()
+except ImportError:
+    print("Warning: python-dotenv not installed. Using environment variables as is.")
+
+from flask import Flask, request
 
 # Load environment variables from .env file
 load_dotenv()
