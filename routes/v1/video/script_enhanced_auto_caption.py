@@ -91,6 +91,7 @@ def script_enhanced_auto_caption():
         min_start_time = data.get("min_start_time", 0.0)  # Default to 0.0 seconds
         subtitle_delay = data.get("subtitle_delay", 0.0)  # Default to 0.0 seconds
         max_chars_per_line = data.get("max_chars_per_line", 30)  # Default to 30 characters per line
+        transcription_tool = data.get("transcription_tool", "openai_whisper")  # Default to OpenAI Whisper
         
         # Always use cloud storage for responses
         response_type = "cloud"
@@ -179,7 +180,8 @@ def script_enhanced_auto_caption():
                 include_srt=include_srt,
                 min_start_time=min_start_time,
                 subtitle_delay=subtitle_delay,
-                max_chars_per_line=max_chars_per_line
+                max_chars_per_line=max_chars_per_line,
+                transcription_tool=transcription_tool
             )
             return jsonify(result)
         except ValueError as e:
@@ -196,7 +198,7 @@ def script_enhanced_auto_caption():
         logger.error(traceback.format_exc())
         return jsonify({"status": "error", "message": f"Unexpected error: {str(e)}"}), 500
 
-def process_script_enhanced_auto_caption(video_url, script_text, language="en", settings=None, output_path=None, webhook_url=None, job_id=None, response_type="cloud", include_srt=False, min_start_time=0.0, subtitle_delay=0.0, max_chars_per_line=30):
+def process_script_enhanced_auto_caption(video_url, script_text, language="en", settings=None, output_path=None, webhook_url=None, job_id=None, response_type="cloud", include_srt=False, min_start_time=0.0, subtitle_delay=0.0, max_chars_per_line=30, transcription_tool="openai_whisper"):
     """
     Process script-enhanced auto-captioning.
     
@@ -213,6 +215,7 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
         min_start_time (float, optional): Minimum start time for subtitles
         subtitle_delay (float, optional): Subtitle delay in seconds
         max_chars_per_line (int, optional): Maximum characters per subtitle line
+        transcription_tool (str, optional): Transcription tool to use (replicate_whisper or openai_whisper)
         
     Returns:
         dict: Response with captioned video URL and metadata
@@ -232,7 +235,7 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
     settings_obj = settings if isinstance(settings, dict) else json.loads(settings)
     
     # Get transcription tool from settings
-    transcription_tool = settings_obj.get("transcription_tool", "openai_whisper")
+    transcription_tool = settings_obj.get("transcription_tool", transcription_tool)
     allow_fallback = settings_obj.get("allow_fallback", False)  # New parameter to control fallback
     start_time = float(settings_obj.get("start_time", 0))
     subtitle_delay = float(settings_obj.get("subtitle_delay", 0))
