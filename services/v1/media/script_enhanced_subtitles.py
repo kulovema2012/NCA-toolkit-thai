@@ -463,9 +463,13 @@ def enhance_subtitles_from_segments(segments, script_text, language="en", settin
         # Convert SRT to ASS with Thai-specific handling
         if language.lower() == "th":
             from services.v1.video.caption_video import convert_srt_to_ass_for_thai
+            
+            # Create the ASS file path
+            ass_path = os.path.join(temp_dir, "subtitles.ass")
+            
+            # First convert SRT to ASS with Thai-specific handling
             convert_srt_to_ass_for_thai(
                 srt_path=srt_path,
-                ass_path=ass_path,
                 font_name=font_name,
                 font_size=font_size,
                 primary_color=line_color,
@@ -475,6 +479,77 @@ def enhance_subtitles_from_segments(segments, script_text, language="en", settin
                 max_words_per_line=settings_obj.get("max_words_per_line", 7),
                 max_width=max_width
             )
+            
+            # Write the ASS file
+            with open(srt_path, 'r', encoding='utf-8') as f_srt:
+                srt_content = f_srt.read()
+                
+            # Check if the ASS file was created, if not create it
+            if not os.path.exists(ass_path):
+                logger.info(f"Creating ASS file at: {ass_path}")
+                
+                # Convert SRT content to ASS format
+                ass_content = """[Script Info]
+Title: Auto-generated Thai subtitles
+ScriptType: v4.00+
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+YCbCr Matrix: TV.601
+PlayResX: 1280
+PlayResY: 720
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,{font_name},{font_size},&H{line_color},&H{line_color},&H{outline_color},&H80000000,1,0,0,0,100,100,0,0,1,2,2,{alignment},20,20,{margin_v},1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+                
+                # Parse SRT content
+                import re
+                pattern = r'(\d+)\n(\d{2}:\d{2}:\d{2},\d{3}) --> (\d{2}:\d{2}:\d{2},\d{3})\n([\s\S]*?)(?=\n\n|\Z)'
+                matches = re.findall(pattern, srt_content, re.MULTILINE)
+                
+                # Convert SRT time format to ASS time format
+                def convert_time_to_ass(time_str):
+                    # Convert from 00:00:00,000 to 0:00:00.00
+                    h, m, s = time_str.split(':')
+                    s, ms = s.split(',')
+                    return f"{int(h)}:{m}:{s}.{ms[:2]}"
+                
+                # Add dialogue lines
+                for match in matches:
+                    _, start_time, end_time, text = match
+                    start_time_ass = convert_time_to_ass(start_time)
+                    end_time_ass = convert_time_to_ass(end_time)
+                    
+                    # Process Thai text with proper line breaks
+                    if PYTHAINLP_AVAILABLE:
+                        from pythainlp.tokenize import word_tokenize
+                        words = word_tokenize(text, engine="newmm")
+                        
+                        # Apply line breaks
+                        lines = []
+                        current_line = ""
+                        for word in words:
+                            if len(current_line) + len(word) > max_width:
+                                lines.append(current_line)
+                                current_line = word
+                            else:
+                                current_line += word
+                        
+                        if current_line:
+                            lines.append(current_line)
+                        
+                        text = "\\N".join(lines)
+                    
+                    # Add the dialogue line
+                    ass_content += f"Dialogue: 0,{start_time_ass},{end_time_ass},Default,,0,0,0,,{text}\n"
+                
+                # Write the ASS file
+                with open(ass_path, 'w', encoding='utf-8') as f_ass:
+                    f_ass.write(ass_content)
         else:
             # Standard conversion for non-Thai languages
             from services.v1.video.caption_video import convert_srt_to_ass
