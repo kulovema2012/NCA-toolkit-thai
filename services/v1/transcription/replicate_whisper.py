@@ -33,16 +33,35 @@ LANGUAGE_CODE_MAP = {
 
 def transcribe_with_replicate(audio_url: str, language: str = "th", batch_size: int = 64) -> List[Dict]:
     """
-    Transcribe audio using Replicate's Incredibly Fast Whisper model via direct API calls.
+    Transcribe audio using Replicate Whisper API.
     
     Args:
-        audio_url: URL to the audio or video file
-        language: Language code (default: "th" for Thai)
-        batch_size: Batch size for processing (default: 64)
+        audio_url (str): URL to the audio file
+        language (str, optional): Language code. Defaults to "th".
+        batch_size (int, optional): Batch size for processing. Defaults to 64.
         
     Returns:
-        List of transcription segments with start, end, and text
+        list: List of transcription segments with start and end times
     """
+    logger.info(f"Starting transcription with Replicate Whisper: {audio_url}")
+    
+    # Ensure audio_url is a valid URL
+    if not audio_url:
+        raise ValueError("Audio URL is required")
+    
+    # Validate the audio URL format
+    if not audio_url.startswith(('http://', 'https://')):
+        raise ValueError(f"Invalid audio URL format: {audio_url}. Must start with http:// or https://")
+    
+    # Check if the URL is accessible
+    try:
+        head_response = requests.head(audio_url, timeout=10)
+        head_response.raise_for_status()
+        logger.info(f"Audio URL is accessible: {audio_url}")
+    except Exception as e:
+        logger.error(f"Audio URL is not accessible: {audio_url}. Error: {str(e)}")
+        raise ValueError(f"Audio URL is not accessible: {str(e)}")
+    
     try:
         # Try multiple possible environment variable names for the Replicate API token
         api_token_vars = ["REPLICATE_API_TOKEN", "REPLICATE_API_KEY", "REPLICATE_TOKEN"]
@@ -202,23 +221,36 @@ def transcribe_with_replicate(audio_url: str, language: str = "th", batch_size: 
             "Prefer": "wait"  # This tells the API to wait for the prediction to complete
         }
         
-        # First try with the latest model
-        model_version = "vaibhavs10/incredibly-fast-whisper:latest"
+        # First try with a specific model version that's known to work
+        model_version = "openai/whisper:4d50797290df275329f202e48c76360b3f22b08d28c196cbc54600319435f8d2"
         
         # Prepare request data
         request_data = {
             "version": model_version,
             "input": {
                 "audio": final_audio_url,
+                "model": "large-v3",
+                "transcription": "plain text",
+                "translate": False,
                 "language": replicate_language,
-                "batch_size": batch_size,
-                "task": "transcribe",
-                "timestamp": "chunk",
-                "diarise_audio": False
+                "temperature": 0,
+                "patience": 1,
+                "suppress_tokens": "-1",
+                "word_timestamps": True
             }
         }
         
-        logger.info(f"Making direct API call to Replicate with parameters: {request_data}")
+        # Log the exact request being sent
+        logger.info(f"Making direct API call to Replicate with URL: {api_url}")
+        logger.info(f"Headers: {headers}")
+        # Don't log the full token, just a masked version
+        masked_headers = headers.copy()
+        if 'Authorization' in masked_headers:
+            auth_value = masked_headers['Authorization']
+            if auth_value.startswith('Bearer '):
+                masked_headers['Authorization'] = f"Bearer {auth_value[7:12]}...{auth_value[-5:]}"
+        logger.info(f"Headers (masked): {masked_headers}")
+        logger.info(f"Request data: {json.dumps(request_data, indent=2)}")
         
         try:
             # Make the API request
@@ -370,8 +402,22 @@ def transcribe_with_replicate(audio_url: str, language: str = "th", batch_size: 
                 logger.info("Trying with alternative model version...")
                 
                 # Use an alternative model version
-                alt_model_version = "vaibhavs10/incredibly-fast-whisper:3ab86df6c8f54c11309d4d1f930ac292bad43ace52d10c80d87eb258b3c9f79c"
-                request_data["version"] = alt_model_version
+                alternative_model = "vaibhavs10/incredibly-fast-whisper:d5dfa8cfa4c0a98d0e9f68b0b44cfc143b89231d4dcc1c2e2c0d8d5369f2d2fd"
+                
+                logger.info(f"First attempt failed. Trying with alternative model: {alternative_model}")
+                
+                # Update request data with the alternative model
+                request_data = {
+                    "version": alternative_model,
+                    "input": {
+                        "audio": final_audio_url,
+                        "language": replicate_language,
+                        "batch_size": batch_size,
+                        "task": "transcribe",
+                        "timestamp": "chunk",
+                        "diarise_audio": False
+                    }
+                }
                 
                 try:
                     # Make the API request with the alternative model

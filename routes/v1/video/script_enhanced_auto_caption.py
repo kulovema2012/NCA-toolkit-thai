@@ -148,6 +148,17 @@ def script_enhanced_auto_caption():
         transcription_tool = data.get("transcription_tool", "openai_whisper")  # Default to OpenAI Whisper
         audio_url = data.get("audio_url", "")  # Optional audio URL for transcription
         
+        # Validate URLs for template variables that might not have been resolved
+        if video_url and (video_url.startswith("{{") or video_url.endswith("}}")):
+            return jsonify({"status": "error", "message": "Invalid video_url: Template variable was not properly resolved"}), 400
+            
+        if audio_url and (audio_url.startswith("{{") or audio_url.endswith("}}")):
+            return jsonify({"status": "error", "message": "Invalid audio_url: Template variable was not properly resolved"}), 400
+            
+        # Validate script text for template variables
+        if script_text and (script_text.startswith("{{") or script_text.endswith("}}")):
+            return jsonify({"status": "error", "message": "Invalid script_text: Template variable was not properly resolved"}), 400
+        
         # Always use cloud storage for responses
         response_type = "cloud"
         
