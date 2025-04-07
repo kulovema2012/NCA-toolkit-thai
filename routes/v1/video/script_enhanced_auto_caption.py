@@ -87,7 +87,7 @@ def script_enhanced_auto_caption():
         "video_url": "URL of the video to caption",
         "script_text": "The voice-over script text",
         "language": "Language code (e.g., 'th' for Thai)",
-        "font_name": "Font name for subtitles",
+        "font_name": "Font name for subtitles (default: 'Sarabun' for Thai, 'Arial' for others)",
         "font_size": "Font size for subtitles",
         "position": "Subtitle position (top, bottom, middle)",
         "subtitle_style": "Subtitle style (classic, modern, karaoke, highlight, underline, word_by_word)",
@@ -147,6 +147,30 @@ def script_enhanced_auto_caption():
         max_chars_per_line = data.get("max_chars_per_line", 30)  # Default to 30 characters per line
         transcription_tool = data.get("transcription_tool", "openai_whisper")  # Default to OpenAI Whisper
         audio_url = data.get("audio_url", "")  # Optional audio URL for transcription
+        
+        # Set default font based on language
+        font_name = data.get("font_name")
+        if not font_name:
+            if language.lower() == "th":
+                font_name = "Sarabun"  # Default to Sarabun for Thai
+            else:
+                font_name = "Arial"  # Default to Arial for other languages
+        
+        # Extract other subtitle styling parameters
+        font_size = data.get("font_size", 24)  # Default to 24pt
+        position = data.get("position", "bottom")  # Default to bottom
+        subtitle_style = data.get("subtitle_style", "classic")  # Default to classic
+        margin_v = data.get("margin_v", 50)  # Default to 50px vertical margin
+        max_width = data.get("max_width", 90)  # Default to 90% of video width
+        line_color = data.get("line_color", "white")  # Default to white text
+        word_color = data.get("word_color", "#FFFF00")  # Default to yellow for highlighted words
+        outline_color = data.get("outline_color", "black")  # Default to black outline
+        all_caps = data.get("all_caps", False)  # Default to not all caps
+        max_words_per_line = data.get("max_words_per_line", 7)  # Default to 7 words per line
+        alignment = data.get("alignment", "center")  # Default to center alignment
+        bold = data.get("bold", True)  # Default to bold text for better readability
+        outline = data.get("outline", True)  # Default to outline for better contrast
+        shadow = data.get("shadow", True)  # Default to shadow for better readability
         
         # Validate URLs for template variables that might not have been resolved
         if video_url and (video_url.startswith("{{") or video_url.endswith("}}")):
@@ -270,15 +294,15 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
     Process script-enhanced auto-captioning.
     
     Args:
-        video_url (str): URL or path to the video file
-        script_text (str): The script text to align with the audio
-        language (str): Language code (e.g., 'th' for Thai)
-        settings (dict): Dictionary of subtitle styling parameters
-        output_path (str, optional): Path to save the output video
-        webhook_url (str, optional): URL to send webhook notifications
-        job_id (str, optional): Job ID for tracking
-        response_type (str, optional): Type of response ("direct" or "cloud")
-        include_srt (bool, optional): Whether to include SRT URL in the response
+        video_url (str): URL of the video to caption
+        script_text (str): The voice-over script text
+        language (str, optional): Language code. Defaults to "en".
+        settings (dict, optional): Additional settings for captioning. Defaults to None.
+        output_path (str, optional): Output path for the captioned video. Defaults to None.
+        webhook_url (str, optional): Webhook URL for async processing. Defaults to None.
+        job_id (str, optional): Job ID for tracking. Defaults to None.
+        response_type (str, optional): Response type (local or cloud). Defaults to "cloud".
+        include_srt (bool, optional): Whether to include SRT file in response. Defaults to False.
         min_start_time (float, optional): Minimum start time for subtitles
         subtitle_delay (float, optional): Subtitle delay in seconds
         max_chars_per_line (int, optional): Maximum characters per subtitle line
@@ -299,8 +323,39 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
     logger.info(f"Job {job_id}: Script length: {len(script_text)} characters")
     logger.info(f"Job {job_id}: Language: {language}")
     
-    # Extract settings
-    settings_obj = settings if isinstance(settings, dict) else json.loads(settings)
+    # Initialize settings if None
+    if settings is None:
+        settings = {}
+    
+    # Create a settings object that combines passed parameters with the settings dict
+    settings_obj = settings.copy()
+    
+    # Add parameters to settings if not already present
+    if "min_start_time" not in settings_obj:
+        settings_obj["min_start_time"] = min_start_time
+    if "subtitle_delay" not in settings_obj:
+        settings_obj["subtitle_delay"] = subtitle_delay
+    if "max_chars_per_line" not in settings_obj:
+        settings_obj["max_chars_per_line"] = max_chars_per_line
+    
+    # Set default font for Thai language if not specified
+    if "font_name" not in settings_obj:
+        if language.lower() == "th":
+            settings_obj["font_name"] = "Sarabun"  # Default to Sarabun for Thai
+        else:
+            settings_obj["font_name"] = "Arial"  # Default to Arial for other languages
+    
+    # Set other default subtitle styling parameters if not specified
+    if "font_size" not in settings_obj:
+        settings_obj["font_size"] = 24  # Default to 24pt
+    if "bold" not in settings_obj:
+        settings_obj["bold"] = True  # Default to bold text for better readability
+    if "outline" not in settings_obj:
+        settings_obj["outline"] = True  # Default to outline for better contrast
+    if "shadow" not in settings_obj:
+        settings_obj["shadow"] = True  # Default to shadow for better readability
+    if "alignment" not in settings_obj:
+        settings_obj["alignment"] = "center"  # Default to center alignment
     
     # Get transcription tool from settings
     transcription_tool = settings_obj.get("transcription_tool", transcription_tool)
@@ -441,7 +496,7 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
                 segment["start"] = segment["start"] + start_time
                 segment["end"] = segment["end"] + start_time
         
-        # Ensure segments have minimum duration
+        # Ensure minimum duration for segments
         min_duration = 1.0  # Minimum duration in seconds
         for segment in segments:
             if segment["end"] - segment["start"] < min_duration:

@@ -372,9 +372,22 @@ def enhance_subtitles_from_segments(segments, script_text, language="en", settin
         
         # Get settings
         settings_obj = settings if settings else {}
+        
+        # Set default font based on language
+        if "font_name" not in settings_obj:
+            if language.lower() == "th":
+                settings_obj["font_name"] = "Sarabun"  # Default to Sarabun for Thai
+            else:
+                settings_obj["font_name"] = "Arial"  # Default to Arial for other languages
+        
         font_name = settings_obj.get("font_name", "Arial")
         font_size = settings_obj.get("font_size", 24)
         max_width = settings_obj.get("max_width", 40)
+        
+        # For Thai language, ensure we're using Sarabun font
+        if language.lower() == "th" and font_name.lower() != "sarabun":
+            logger.info(f"Thai language detected, switching font from {font_name} to Sarabun for better Thai support")
+            font_name = "Sarabun"
         
         logger.info(f"Using font: {font_name}, size: {font_size}, max width: {max_width}")
         
@@ -403,133 +416,85 @@ def enhance_subtitles_from_segments(segments, script_text, language="en", settin
         ass_path = os.path.join(temp_dir, "subtitles.ass")
         logger.info(f"Converting SRT to ASS at: {ass_path}")
         
-        # Read SRT content
-        with open(srt_path, "r", encoding="utf-8") as f:
-            srt_content = f.read()
+        # Get additional styling parameters
+        bold = settings_obj.get("bold", True)  # Default to bold for better readability
+        italic = settings_obj.get("italic", False)
+        underline = settings_obj.get("underline", False)
+        strikeout = settings_obj.get("strikeout", False)
+        outline = settings_obj.get("outline", True)  # Default to outline for better contrast
+        shadow = settings_obj.get("shadow", True)  # Default to shadow for better readability
+        alignment = settings_obj.get("alignment", "center")  # Default to center alignment
+        line_color = settings_obj.get("line_color", "white")  # Default to white text
+        outline_color = settings_obj.get("outline_color", "black")  # Default to black outline
+        margin_v = settings_obj.get("margin_v", 30)  # Default to 30px vertical margin
         
-        # Parse SRT content
-        subtitle_entries = []
-        pattern = re.compile(r'(\d+)\n(\d{2}:\d{2}:\d{2},\d{3}) --> (\d{2}:\d{2}:\d{2},\d{3})\n([\s\S]*?)(?=\n\n|\Z)')
+        # For Thai language, ensure we have proper styling
+        if language.lower() == "th":
+            # Increase font size slightly for better Thai readability if not already set
+            if "font_size" not in settings_obj:
+                font_size = 28
+            
+            # Ensure bold is enabled for Thai text
+            bold = True
+            
+            # Ensure outline and shadow for better readability against any background
+            outline = True
+            shadow = True
         
-        for match in pattern.finditer(srt_content):
-            index = match.group(1)
-            start_time = match.group(2)
-            end_time = match.group(3)
-            text = match.group(4).strip()
-            
-            # Convert SRT time format to ASS time format
-            start_time_ass = convert_srt_time_to_ass(start_time)
-            end_time_ass = convert_srt_time_to_ass(end_time)
-            
-            # Process text based on language
-            if language == "th":
-                # For Thai, use word segmentation
-                try:
-                    from pythainlp.util import isthai
-                    from pythainlp.tokenize import word_tokenize
-                    
-                    # Process Thai text with word breaks
-                    lines = []
-                    current_line = ""
-                    words = word_tokenize(text, engine="newmm")
-                    
-                    for word in words:
-                        # Check if adding this word would exceed max width
-                        if len(current_line) + len(word) > max_width:
-                            lines.append(current_line)
-                            current_line = word
-                        else:
-                            if current_line:
-                                current_line += word
-                            else:
-                                current_line = word
-                    
-                    if current_line:
-                        lines.append(current_line)
-                    
-                    # Join lines with ASS line break
-                    text = "\\N".join(lines)
-                    logger.info(f"Processed Thai text with {len(lines)} lines")
-                    
-                except Exception as e:
-                    logger.error(f"Error in Thai text processing: {str(e)}")
-                    # Fall back to simple line breaks
-                    words = text.split()
-                    lines = []
-                    current_line = ""
-                    
-                    for word in words:
-                        if len(current_line) + len(word) + 1 > max_width:
-                            lines.append(current_line)
-                            current_line = word
-                        else:
-                            if current_line:
-                                current_line += " " + word
-                            else:
-                                current_line = word
-                    
-                    if current_line:
-                        lines.append(current_line)
-                    
-                    text = "\\N".join(lines)
-                    logger.warning(f"Fell back to simple line breaks, got {len(lines)} lines")
-            else:
-                # For other languages, use simple word wrapping
-                words = text.split()
-                lines = []
-                current_line = ""
-                
-                for word in words:
-                    if len(current_line) + len(word) + 1 > max_width:
-                        lines.append(current_line)
-                        current_line = word
-                    else:
-                        if current_line:
-                            current_line += " " + word
-                        else:
-                            current_line = word
-                
-                if current_line:
-                    lines.append(current_line)
-                
-                text = "\\N".join(lines)
-                logger.info(f"Processed {language} text with {len(lines)} lines")
-            
-            subtitle_entries.append({
-                "index": index,
-                "start": start_time_ass,
-                "end": end_time_ass,
-                "text": text
-            })
+        # Create font formatting string
+        font_formatting = {
+            "bold": bold,
+            "italic": italic,
+            "underline": underline,
+            "strikeout": strikeout,
+            "outline": outline,
+            "shadow": shadow
+        }
         
-        logger.info(f"Parsed {len(subtitle_entries)} subtitle entries")
+        # Convert alignment string to ASS alignment number
+        if isinstance(alignment, str):
+            if alignment.lower() == "left":
+                alignment = 1
+            elif alignment.lower() == "right":
+                alignment = 3
+            else:  # center or any other value
+                alignment = 2
         
-        # Generate ASS file
-        with open(ass_path, "w", encoding="utf-8") as f:
-            # Write ASS header
-            f.write("[Script Info]\n")
-            f.write("Title: Auto-generated subtitles\n")
-            f.write("ScriptType: v4.00+\n")
-            f.write("WrapStyle: 0\n")
-            f.write("ScaledBorderAndShadow: yes\n")
-            f.write("YCbCr Matrix: TV.601\n")
-            f.write("PlayResX: 1280\n")
-            f.write("PlayResY: 720\n\n")
-            
-            # Write Styles
-            f.write("[V4+ Styles]\n")
-            f.write("Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n")
-            f.write(f"Style: Default,{font_name},{font_size},&HFFFFFF,&HFFFFFF,&H000000,&HFF000000,1,0,0,0,100,100,0,0,1,2,2,2,20,20,20,1\n\n")
-            
-            # Write Events
-            f.write("[Events]\n")
-            f.write("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
-            
-            for entry in subtitle_entries:
-                f.write(f"Dialogue: 0,{entry['start']},{entry['end']},Default,,0,0,0,,{entry['text']}\n")
+        # Convert SRT to ASS with Thai-specific handling
+        if language.lower() == "th":
+            from services.v1.video.caption_video import convert_srt_to_ass_for_thai
+            convert_srt_to_ass_for_thai(
+                srt_path=srt_path,
+                ass_path=ass_path,
+                font_name=font_name,
+                font_size=font_size,
+                primary_color=line_color,
+                outline_color=outline_color,
+                alignment=alignment,
+                margin_v=margin_v,
+                max_words_per_line=settings_obj.get("max_words_per_line", 7),
+                max_width=max_width
+            )
+        else:
+            # Standard conversion for non-Thai languages
+            from services.v1.video.caption_video import convert_srt_to_ass
+            convert_srt_to_ass(
+                srt_path=srt_path,
+                ass_path=ass_path,
+                font_name=font_name,
+                font_size=font_size,
+                line_color=line_color,
+                outline_color=outline_color,
+                word_color=settings_obj.get("word_color", "#FFFF00"),
+                alignment=alignment,
+                margin_v=margin_v,
+                subtitle_style=settings_obj.get("subtitle_style", "classic"),
+                max_width=max_width,
+                all_caps=settings_obj.get("all_caps", False),
+                font_formatting=font_formatting
+            )
         
-        logger.info(f"Generated ASS file with {len(subtitle_entries)} entries")
-        logger.info(f"Subtitle enhancement completed successfully")
+        logger.info(f"Generated ASS file with enhanced formatting")
         
         return srt_path, ass_path
         
