@@ -121,6 +121,64 @@ def transcribe_with_replicate(audio_url: str, language: str = "th", batch_size: 
             except Exception as e:
                 logger.error(f"Error extracting audio: {str(e)}")
                 raise ValueError(f"Failed to extract audio from video: {str(e)}")
+        elif not audio_url.endswith('.mp3') and not audio_url.endswith('.wav') and not audio_url.endswith('.m4a'):
+            # For remote video files, we need to download, extract audio, and upload it
+            logger.info(f"Remote video file detected. Downloading, extracting audio, and uploading...")
+            
+            try:
+                # Create a temporary directory for processing
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    # Download the video
+                    video_path = os.path.join(temp_dir, "video.mp4")
+                    
+                    # Download the video file
+                    response = requests.get(audio_url, stream=True)
+                    response.raise_for_status()
+                    
+                    with open(video_path, 'wb') as f:
+                        for chunk in response.iter_content(chunk_size=8192):
+                            f.write(chunk)
+                    
+                    logger.info(f"Downloaded video to {video_path}")
+                    
+                    # Extract audio from the video file
+                    extracted_audio_path = os.path.join(temp_dir, "extracted_audio.mp3")
+                    
+                    # Use FFmpeg to extract audio
+                    ffmpeg_command = [
+                        "ffmpeg", "-y",
+                        "-i", video_path,
+                        "-vn", "-acodec", "libmp3lame",
+                        "-ar", "44100", "-ac", "2", "-b:a", "192k",
+                        "-af", "loudnorm=I=-16:LRA=11:TP=-1.5",
+                        extracted_audio_path
+                    ]
+                    
+                    logger.info(f"Extracting audio with command: {' '.join(ffmpeg_command)}")
+                    subprocess.run(ffmpeg_command, check=True, capture_output=True)
+                    
+                    if os.path.exists(extracted_audio_path):
+                        logger.info(f"Successfully extracted audio to {extracted_audio_path}")
+                        
+                        # Upload the extracted audio to cloud storage
+                        try:
+                            from services.cloud_storage import upload_file_to_cloud
+                            extracted_audio_url = upload_file_to_cloud(
+                                file_path=extracted_audio_path,
+                                custom_path=f"audio/extracted_{os.path.basename(extracted_audio_path)}"
+                            )
+                            logger.info(f"Successfully uploaded audio to cloud: {extracted_audio_url}")
+                        except Exception as upload_error:
+                            logger.error(f"Error uploading audio to cloud: {str(upload_error)}")
+                            # If we can't upload, we'll fall back to the original URL
+                            logger.info(f"Falling back to original URL: {audio_url}")
+                    else:
+                        logger.error(f"Failed to extract audio: file not found at {extracted_audio_path}")
+                        # If extraction fails, we'll fall back to the original URL
+                        logger.info(f"Falling back to original URL: {audio_url}")
+            except Exception as e:
+                logger.error(f"Error processing video: {str(e)}")
+                logger.info(f"Falling back to original URL: {audio_url}")
         
         # Use the extracted audio URL if available, otherwise use the original URL
         final_audio_url = extracted_audio_url if extracted_audio_url else audio_url
@@ -145,7 +203,7 @@ def transcribe_with_replicate(audio_url: str, language: str = "th", batch_size: 
         }
         
         # First try with the latest model
-        model_version = "vaibhavs10/incredibly-fast-whisper:d5dfa8cfa4c0a98d0e9f68b0b44cfc143b89231d4dcc1c2e2c0d8d5369f2d2fd"
+        model_version = "vaibhavs10/incredibly-fast-whisper:latest"
         
         # Prepare request data
         request_data = {
@@ -165,6 +223,22 @@ def transcribe_with_replicate(audio_url: str, language: str = "th", batch_size: 
         try:
             # Make the API request
             response = requests.post(api_url, json=request_data, headers=headers)
+            
+            # Log the full response for debugging
+            try:
+                response_json = response.json()
+                logger.info(f"Raw API response: {response_json}")
+                
+                # Check for specific error details
+                if 'detail' in response_json:
+                    logger.error(f"API error detail: {response_json['detail']}")
+                    
+                # Check for validation errors
+                if 'validation_errors' in response_json:
+                    logger.error(f"Validation errors: {response_json['validation_errors']}")
+            except Exception as json_error:
+                logger.error(f"Could not parse response as JSON: {str(json_error)}")
+                logger.error(f"Raw response text: {response.text}")
             
             # Check if the request was successful
             response.raise_for_status()
@@ -302,6 +376,22 @@ def transcribe_with_replicate(audio_url: str, language: str = "th", batch_size: 
                 try:
                     # Make the API request with the alternative model
                     response = requests.post(api_url, json=request_data, headers=headers)
+                    
+                    # Log the full response for debugging
+                    try:
+                        response_json = response.json()
+                        logger.info(f"Raw API response: {response_json}")
+                        
+                        # Check for specific error details
+                        if 'detail' in response_json:
+                            logger.error(f"API error detail: {response_json['detail']}")
+                            
+                        # Check for validation errors
+                        if 'validation_errors' in response_json:
+                            logger.error(f"Validation errors: {response_json['validation_errors']}")
+                    except Exception as json_error:
+                        logger.error(f"Could not parse response as JSON: {str(json_error)}")
+                        logger.error(f"Raw response text: {response.text}")
                     
                     # Check if the request was successful
                     response.raise_for_status()

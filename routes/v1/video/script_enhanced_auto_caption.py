@@ -117,7 +117,8 @@ def script_enhanced_auto_caption():
         "transcription_tool": "Transcription tool to use (replicate_whisper or openai_whisper)",
         "start_time": "Start time for transcription (in seconds)",
         "subtitle_delay": "Subtitle delay in seconds",
-        "max_chars_per_line": "Maximum characters per subtitle line"
+        "max_chars_per_line": "Maximum characters per subtitle line",
+        "audio_url": "Optional URL to an audio file to use for transcription instead of extracting from video"
     }
     """
     try:
@@ -145,6 +146,7 @@ def script_enhanced_auto_caption():
         subtitle_delay = data.get("subtitle_delay", 0.0)  # Default to 0.0 seconds
         max_chars_per_line = data.get("max_chars_per_line", 30)  # Default to 30 characters per line
         transcription_tool = data.get("transcription_tool", "openai_whisper")  # Default to OpenAI Whisper
+        audio_url = data.get("audio_url", "")  # Optional audio URL for transcription
         
         # Always use cloud storage for responses
         response_type = "cloud"
@@ -234,7 +236,8 @@ def script_enhanced_auto_caption():
                 min_start_time=min_start_time,
                 subtitle_delay=subtitle_delay,
                 max_chars_per_line=max_chars_per_line,
-                transcription_tool=transcription_tool
+                transcription_tool=transcription_tool,
+                audio_url=audio_url
             )
             return jsonify(result)
         except ValueError as e:
@@ -251,7 +254,7 @@ def script_enhanced_auto_caption():
         logger.error(traceback.format_exc())
         return jsonify({"status": "error", "message": f"Unexpected error: {str(e)}"}), 500
 
-def process_script_enhanced_auto_caption(video_url, script_text, language="en", settings=None, output_path=None, webhook_url=None, job_id=None, response_type="cloud", include_srt=False, min_start_time=0.0, subtitle_delay=0.0, max_chars_per_line=30, transcription_tool="openai_whisper"):
+def process_script_enhanced_auto_caption(video_url, script_text, language="en", settings=None, output_path=None, webhook_url=None, job_id=None, response_type="cloud", include_srt=False, min_start_time=0.0, subtitle_delay=0.0, max_chars_per_line=30, transcription_tool="openai_whisper", audio_url=""):
     """
     Process script-enhanced auto-captioning.
     
@@ -269,6 +272,7 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
         subtitle_delay (float, optional): Subtitle delay in seconds
         max_chars_per_line (int, optional): Maximum characters per subtitle line
         transcription_tool (str, optional): Transcription tool to use (replicate_whisper or openai_whisper)
+        audio_url (str, optional): Optional URL to an audio file to use for transcription instead of extracting from video
         
     Returns:
         dict: Response with captioned video URL and metadata
@@ -330,8 +334,9 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
             if transcription_tool == "replicate_whisper" and replicate_available:
                 try:
                     # Extract audio URL if provided
-                    audio_url = settings_obj.get("audio_url")
-                    if not audio_url:
+                    if audio_url:
+                        audio_url = audio_url
+                    else:
                         # If no audio URL provided, use the video URL
                         audio_url = video_url
                     # Ensure the audio_url is a remote URL (not a local path)
