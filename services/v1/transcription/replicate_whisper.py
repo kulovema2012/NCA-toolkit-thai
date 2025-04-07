@@ -203,13 +203,17 @@ def transcribe_with_replicate(audio_url: str, language: str = "th", batch_size: 
         final_audio_url = extracted_audio_url if extracted_audio_url else audio_url
         logger.info(f"Using audio URL for transcription: {final_audio_url}")
         
-        # Map language code to full language name if needed
-        replicate_language = LANGUAGE_CODE_MAP.get(language.lower(), language.lower())
-        if replicate_language not in SUPPORTED_LANGUAGES:
-            logger.warning(f"Language '{language}' not directly supported, defaulting to 'thai'")
-            replicate_language = "thai"
+        # Use the exact model version from the working cURL example
+        model_version = "3ab86df6c8f54c11309d4d1f930ac292bad43ace52d10c80d87eb258b3c9f79c"
         
-        logger.info(f"Using language for Replicate: {replicate_language}")
+        # Prepare request data with minimal parameters that match the working example
+        request_data = {
+            "version": model_version,
+            "input": {
+                "audio": final_audio_url,
+                "batch_size": batch_size
+            }
+        }
         
         # API endpoint
         api_url = "https://api.replicate.com/v1/predictions"
@@ -221,28 +225,8 @@ def transcribe_with_replicate(audio_url: str, language: str = "th", batch_size: 
             "Prefer": "wait"  # This tells the API to wait for the prediction to complete
         }
         
-        # First try with a specific model version that's known to work
-        model_version = "openai/whisper:4d50797290df275329f202e48c76360b3f22b08d28c196cbc54600319435f8d2"
-        
-        # Prepare request data
-        request_data = {
-            "version": model_version,
-            "input": {
-                "audio": final_audio_url,
-                "model": "large-v3",
-                "transcription": "plain text",
-                "translate": False,
-                "language": replicate_language,
-                "temperature": 0,
-                "patience": 1,
-                "suppress_tokens": "-1",
-                "word_timestamps": True
-            }
-        }
-        
         # Log the exact request being sent
         logger.info(f"Making direct API call to Replicate with URL: {api_url}")
-        logger.info(f"Headers: {headers}")
         # Don't log the full token, just a masked version
         masked_headers = headers.copy()
         if 'Authorization' in masked_headers:
@@ -338,239 +322,149 @@ def transcribe_with_replicate(audio_url: str, language: str = "th", batch_size: 
                 logger.error("No output received from Replicate API")
                 raise ValueError("No output received from Replicate API")
             
+            # Log the output structure to help with debugging
+            logger.info(f"Output type: {type(output)}")
+            if isinstance(output, dict):
+                logger.info(f"Output keys: {output.keys()}")
+            elif isinstance(output, list):
+                logger.info(f"Output is a list with {len(output)} items")
+                if output and isinstance(output[0], dict):
+                    logger.info(f"First item keys: {output[0].keys()}")
+            
             # Process the output to create segments
             segments = []
             
-            # Check if output contains 'chunks' (Whisper format)
-            if isinstance(output, dict) and "chunks" in output:
-                chunks = output["chunks"]
-                logger.info(f"Received {len(chunks)} chunks from Replicate")
+            # Handle the Incredibly Fast Whisper output format
+            # The model returns a list of segments with text and timestamps
+            if isinstance(output, list):
+                logger.info(f"Processing list output with {len(output)} items")
                 
-                for chunk in chunks:
-                    # Extract the relevant information
-                    text = chunk.get("text", "").strip()
-                    timestamp = chunk.get("timestamp", [0, 0])
-                    
-                    # Skip empty chunks
-                    if not text:
-                        continue
-                    
-                    # Create a segment
-                    segment = {
-                        "start": timestamp[0],
-                        "end": timestamp[1],
-                        "text": text
-                    }
-                    
-                    segments.append(segment)
+                for item in output:
+                    if isinstance(item, dict):
+                        # Extract the relevant information
+                        text = item.get("text", "").strip()
+                        start = item.get("start", 0)
+                        end = item.get("end", 0)
+                        
+                        # Skip empty segments
+                        if not text:
+                            continue
+                        
+                        # Create a segment
+                        segment = {
+                            "start": start,
+                            "end": end,
+                            "text": text
+                        }
+                        
+                        segments.append(segment)
+            
+            # Handle the case where output is a dictionary with 'segments'
+            elif isinstance(output, dict) and "segments" in output:
+                logger.info(f"Processing dictionary output with 'segments' key")
+                
+                for segment in output["segments"]:
+                    if isinstance(segment, dict):
+                        # Extract the relevant information
+                        text = segment.get("text", "").strip()
+                        start = segment.get("start", 0)
+                        end = segment.get("end", 0)
+                        
+                        # Skip empty segments
+                        if not text:
+                            continue
+                        
+                        # Create a segment
+                        segment_data = {
+                            "start": start,
+                            "end": end,
+                            "text": text
+                        }
+                        
+                        segments.append(segment_data)
+            
+            # Handle the case where output is a dictionary with 'chunks'
+            elif isinstance(output, dict) and "chunks" in output:
+                logger.info(f"Processing dictionary output with 'chunks' key")
+                
+                for chunk in output["chunks"]:
+                    if isinstance(chunk, dict):
+                        # Extract the relevant information
+                        text = chunk.get("text", "").strip()
+                        timestamp = chunk.get("timestamp", [0, 0])
+                        
+                        # Skip empty chunks
+                        if not text:
+                            continue
+                        
+                        # Create a segment
+                        segment = {
+                            "start": timestamp[0] if isinstance(timestamp, list) and len(timestamp) > 0 else 0,
+                            "end": timestamp[1] if isinstance(timestamp, list) and len(timestamp) > 1 else 0,
+                            "text": text
+                        }
+                        
+                        segments.append(segment)
+            
+            # Handle the case where output is a string (full transcription without timestamps)
+            elif isinstance(output, str):
+                logger.info(f"Processing string output (length: {len(output)})")
+                
+                # Create a single segment with the full text
+                segment = {
+                    "start": 0,
+                    "end": 60,  # Default to 60 seconds if no timing information
+                    "text": output.strip()
+                }
+                
+                segments.append(segment)
+            
             else:
-                # Handle other output formats
-                logger.warning(f"Unexpected output format from Replicate: {type(output)}")
-                
-                # Try to extract text and timestamps from the output
-                if isinstance(output, list):
-                    for item in output:
-                        if isinstance(item, dict) and "text" in item:
-                            # Extract the relevant information
-                            text = item.get("text", "").strip()
-                            start = item.get("start", 0)
-                            end = item.get("end", start + 5)  # Default to 5 seconds if no end time
-                            
-                            # Skip empty items
-                            if not text:
-                                continue
-                            
-                            # Create a segment
-                            segment = {
-                                "start": start,
-                                "end": end,
-                                "text": text
-                            }
-                            
-                            segments.append(segment)
+                logger.error(f"Unexpected output format: {output}")
+                raise ValueError(f"Unexpected output format from Replicate: {type(output)}")
             
             logger.info(f"Processed {len(segments)} segments from Replicate output")
             
             # Return the segments
             return segments
-            
+        
         except requests.exceptions.RequestException as e:
             logger.error(f"HTTP error during Replicate API call: {str(e)}")
             
-            # Try with an alternative model version if the first attempt failed
-            if "version does not exist" in str(e).lower():
-                logger.info("Trying with alternative model version...")
+            # No fallback to alternative model - use the same model version that works
+            logger.info(f"First attempt failed. Trying with detailed error logging...")
+            
+            # Make another attempt with the same model but log more details about the error
+            try:
+                # Make the API request with more detailed error logging
+                response = requests.post(api_url, json=request_data, headers=headers)
                 
-                # Use an alternative model version
-                alternative_model = "vaibhavs10/incredibly-fast-whisper:d5dfa8cfa4c0a98d0e9f68b0b44cfc143b89231d4dcc1c2e2c0d8d5369f2d2fd"
-                
-                logger.info(f"First attempt failed. Trying with alternative model: {alternative_model}")
-                
-                # Update request data with the alternative model
-                request_data = {
-                    "version": alternative_model,
-                    "input": {
-                        "audio": final_audio_url,
-                        "language": replicate_language,
-                        "batch_size": batch_size,
-                        "task": "transcribe",
-                        "timestamp": "chunk",
-                        "diarise_audio": False
-                    }
-                }
-                
+                # Log the full response for debugging
                 try:
-                    # Make the API request with the alternative model
-                    response = requests.post(api_url, json=request_data, headers=headers)
+                    response_json = response.json()
+                    logger.error(f"Full API error response: {json.dumps(response_json, indent=2)}")
                     
-                    # Log the full response for debugging
-                    try:
-                        response_json = response.json()
-                        logger.info(f"Raw API response: {response_json}")
+                    # Check for specific error details
+                    if 'detail' in response_json:
+                        logger.error(f"API error detail: {response_json['detail']}")
                         
-                        # Check for specific error details
-                        if 'detail' in response_json:
-                            logger.error(f"API error detail: {response_json['detail']}")
-                            
-                        # Check for validation errors
-                        if 'validation_errors' in response_json:
-                            logger.error(f"Validation errors: {response_json['validation_errors']}")
-                    except Exception as json_error:
-                        logger.error(f"Could not parse response as JSON: {str(json_error)}")
-                        logger.error(f"Raw response text: {response.text}")
-                    
-                    # Check if the request was successful
-                    response.raise_for_status()
-                    
-                    # Parse the response and continue with the same logic as above
-                    result = response.json()
-                    logger.info(f"Alternative model API call successful, received response with keys: {result.keys()}")
-                    
-                    # Continue with the same processing logic as above
-                    # ... (same code as above for processing the response)
-                    
-                    # Get the prediction ID
-                    prediction_id = result.get("id")
-                    logger.info(f"Prediction ID: {prediction_id}")
-                    
-                    # Check if we need to poll for results
-                    status = result.get("status")
-                    output = result.get("output")
-                    
-                    # If the prediction is still processing, poll for results
-                    if status == "processing" or output is None:
-                        logger.info("Prediction is still processing, polling for results...")
-                        
-                        # Set up polling parameters
-                        max_polls = 60  # Maximum number of polling attempts
-                        poll_interval = 5  # Seconds between polls
-                        polls = 0
-                        
-                        # Poll for results
-                        while polls < max_polls:
-                            # Wait before polling
-                            time.sleep(poll_interval)
-                            polls += 1
-                            
-                            # Make a GET request to check the status
-                            poll_url = f"https://api.replicate.com/v1/predictions/{prediction_id}"
-                            poll_response = requests.get(poll_url, headers=headers)
-                            
-                            # Check if the request was successful
-                            poll_response.raise_for_status()
-                            
-                            # Parse the response
-                            poll_result = poll_response.json()
-                            status = poll_result.get("status")
-                            output = poll_result.get("output")
-                            
-                            logger.info(f"Poll {polls}/{max_polls}: Status = {status}")
-                            
-                            # If the prediction is complete, break the loop
-                            if status == "succeeded" and output is not None:
-                                logger.info("Prediction completed successfully")
-                                result = poll_result
-                                break
-                            
-                            # If the prediction failed, raise an error
-                            if status == "failed":
-                                error = poll_result.get("error")
-                                logger.error(f"Prediction failed: {error}")
-                                raise ValueError(f"Replicate prediction failed: {error}")
-                        
-                        # If we've exhausted our polling attempts, raise an error
-                        if polls >= max_polls and (status != "succeeded" or output is None):
-                            logger.error("Exceeded maximum polling attempts")
-                            raise ValueError("Exceeded maximum polling attempts for Replicate prediction")
-                    
-                    # Process the output
-                    if output is None:
-                        logger.error("No output received from Replicate API")
-                        raise ValueError("No output received from Replicate API")
-                    
-                    # Process the output to create segments
-                    segments = []
-                    
-                    # Check if output contains 'chunks' (Whisper format)
-                    if isinstance(output, dict) and "chunks" in output:
-                        chunks = output["chunks"]
-                        logger.info(f"Received {len(chunks)} chunks from Replicate")
-                        
-                        for chunk in chunks:
-                            # Extract the relevant information
-                            text = chunk.get("text", "").strip()
-                            timestamp = chunk.get("timestamp", [0, 0])
-                            
-                            # Skip empty chunks
-                            if not text:
-                                continue
-                            
-                            # Create a segment
-                            segment = {
-                                "start": timestamp[0],
-                                "end": timestamp[1],
-                                "text": text
-                            }
-                            
-                            segments.append(segment)
-                    else:
-                        # Handle other output formats
-                        logger.warning(f"Unexpected output format from Replicate: {type(output)}")
-                        
-                        # Try to extract text and timestamps from the output
-                        if isinstance(output, list):
-                            for item in output:
-                                if isinstance(item, dict) and "text" in item:
-                                    # Extract the relevant information
-                                    text = item.get("text", "").strip()
-                                    start = item.get("start", 0)
-                                    end = item.get("end", start + 5)  # Default to 5 seconds if no end time
-                                    
-                                    # Skip empty items
-                                    if not text:
-                                        continue
-                                    
-                                    # Create a segment
-                                    segment = {
-                                        "start": start,
-                                        "end": end,
-                                        "text": text
-                                    }
-                                    
-                                    segments.append(segment)
-                    
-                    logger.info(f"Processed {len(segments)} segments from Replicate output")
-                    
-                    # Return the segments
-                    return segments
-                    
-                except requests.exceptions.RequestException as alt_e:
-                    logger.error(f"HTTP error during alternative model API call: {str(alt_e)}")
-                    raise ValueError(f"Replicate API error (both model versions failed): {str(e)}, then: {str(alt_e)}")
+                    # Check for validation errors
+                    if 'validation_errors' in response_json:
+                        logger.error(f"Validation errors: {response_json['validation_errors']}")
+                except Exception as json_error:
+                    logger.error(f"Could not parse response as JSON: {str(json_error)}")
+                    logger.error(f"Raw response text: {response.text}")
+                
+                # Raise the error for proper handling
+                raise ValueError(f"Replicate API error after multiple attempts: {response.status_code} {response.reason}")
             
-            # If not a version error, just raise the original error
-            raise ValueError(f"Replicate API error: {str(e)}")
-            
+            except requests.exceptions.RequestException as alt_e:
+                logger.error(f"HTTP error during alternative model API call: {str(alt_e)}")
+                raise ValueError(f"Replicate API error (both model versions failed): {str(e)}, then: {str(alt_e)}")
+        
+        # If not a version error, just raise the original error
+        raise ValueError(f"Replicate API error: {str(e)}")
+        
     except Exception as e:
         logger.error(f"Error in Replicate transcription: {str(e)}")
         raise ValueError(f"Replicate API error: {str(e)}")
