@@ -139,7 +139,11 @@ def convert_srt_to_ass_for_thai(srt_path, font_name=None, font_size=24, primary_
     Convert SRT subtitles to ASS format with special handling for Thai text.
     """
     try:
+        logger.info(f"=== STARTING SRT TO ASS CONVERSION FOR THAI ===")
         logger.info(f"Converting SRT to ASS for Thai: {srt_path}")
+        logger.debug(f"Parameters: font_name={font_name}, font_size={font_size}, margin_v={margin_v}")
+        logger.debug(f"Colors: primary_color={primary_color}, outline_color={outline_color}, back_color={back_color}")
+        logger.debug(f"Text formatting: alignment={alignment}, max_words_per_line={max_words_per_line}, max_width={max_width}")
         
         # Get the best available Thai font if none specified
         if not font_name:
@@ -148,235 +152,141 @@ def convert_srt_to_ass_for_thai(srt_path, font_name=None, font_size=24, primary_
         
         # Parse the SRT file
         with open(srt_path, 'r', encoding='utf-8-sig') as f:
-            subs = list(srt.parse(f.read()))
+            srt_content = f.read()
+            logger.debug(f"Read SRT file, content length: {len(srt_content)} bytes")
+            subs = list(srt.parse(srt_content))
+            logger.info(f"Parsed {len(subs)} subtitle entries from SRT file")
         
-        # Create an ASS file
-        ass_path = srt_path.replace('.srt', '.ass')
+        # Create ASS file path
+        ass_path = os.path.splitext(srt_path)[0] + '.ass'
+        logger.info(f"Will create ASS file at: {ass_path}")
         
-        # Write ASS file with Thai-specific settings
+        # Write ASS file
         with open(ass_path, 'w', encoding='utf-8') as f:
-            # Write header
+            logger.debug("Writing ASS file header")
+            # Write ASS header
             f.write("[Script Info]\n")
-            f.write("Title: Thai Subtitles\n")
+            f.write("Title: Auto-generated Thai subtitles\n")
             f.write("ScriptType: v4.00+\n")
-            f.write("Collisions: Normal\n")
-            f.write("PlayResX: 1920\n")  # Standard HD width
-            f.write("PlayResY: 1080\n")  # Standard HD height
-            f.write("YCbCr Matrix: None\n\n")
+            f.write("WrapStyle: 0\n")
+            f.write("ScaledBorderAndShadow: yes\n")
+            f.write("YCbCr Matrix: TV.601\n")
+            f.write("PlayResX: 1280\n")
+            f.write("PlayResY: 720\n\n")
             
-            # Write styles
+            # Convert colors to ASS format if needed
+            logger.debug("Converting colors to ASS format")
+            if primary_color.startswith('#'):
+                primary_color = primary_color.lstrip('#')
+                if len(primary_color) == 6:
+                    r, g, b = primary_color[0:2], primary_color[2:4], primary_color[4:6]
+                    primary_color = f"&H00{b}{g}{r}"
+                    logger.debug(f"Converted primary_color to ASS format: {primary_color}")
+            
+            if outline_color.startswith('#'):
+                outline_color = outline_color.lstrip('#')
+                if len(outline_color) == 6:
+                    r, g, b = outline_color[0:2], outline_color[2:4], outline_color[4:6]
+                    outline_color = f"&H00{b}{g}{r}"
+                    logger.debug(f"Converted outline_color to ASS format: {outline_color}")
+            
+            # Set back color to semi-transparent black if not specified
+            if not back_color:
+                back_color = "&H80000000"
+                logger.debug("No back_color specified, using semi-transparent black")
+            elif back_color.startswith('#'):
+                back_color = back_color.lstrip('#')
+                if len(back_color) == 6:
+                    r, g, b = back_color[0:2], back_color[2:4], back_color[4:6]
+                    back_color = f"&H00{b}{g}{r}"
+                    logger.debug(f"Converted back_color to ASS format: {back_color}")
+            
+            logger.debug("Writing ASS styles section")
+            # Write Styles
             f.write("[V4+ Styles]\n")
             f.write("Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n")
             
-            # Define a style for Thai text with explicit font settings
-            # Convert colors to ASS format (BBGGRR&H)
-            # For primary color (text color)
-            if primary_color.lower() == "white":
-                primary_color_hex = "&H00FFFFFF"  # White
-            elif primary_color.lower() == "yellow":
-                primary_color_hex = "&H0000FFFF"  # Yellow
-            elif primary_color.lower() == "black":
-                primary_color_hex = "&H00000000"  # Black
-            else:
-                primary_color_hex = "&H00FFFFFF"  # Default to white
+            # Always use bold=1 for Thai text to improve readability
+            # Use BorderStyle=1 for outline with shadow
+            # Explicitly set MarginV to the provided value
+            style_line = f"Style: Default,{font_name},{font_size},{primary_color},{primary_color},{outline_color},{back_color},1,0,0,0,100,100,0,0,1,2,2,{alignment},20,20,{margin_v},1\n\n"
+            f.write(style_line)
+            logger.debug(f"Wrote style line: {style_line.strip()}")
             
-            # For outline color
-            if outline_color.lower() == "black":
-                outline_color_hex = "&H000000FF"  # Black
-            elif outline_color.lower() == "white":
-                outline_color_hex = "&H00FFFFFF"  # White
-            else:
-                outline_color_hex = "&H000000FF"  # Default to black
-            
-            # CRITICAL FIX: Handle back_color properly
-            # Default to semi-transparent black if not specified
-            back_color_hex = "&H80000000"  # Default: semi-transparent black (80 = 50% opacity)
-            
-            # Process back_color parameter
-            logger.info(f"Original back_color parameter: '{back_color}'")
-            
-            if back_color:
-                if isinstance(back_color, str):
-                    # Handle different formats
-                    if back_color.startswith("&H"):
-                        # Already in ASS format
-                        back_color_hex = back_color
-                        logger.info(f"Using ASS format back_color: {back_color_hex}")
-                    elif back_color.startswith("H"):
-                        # Missing the & prefix, add it
-                        back_color_hex = "&" + back_color
-                        logger.info(f"Fixed back_color format by adding &: {back_color_hex}")
-                    elif back_color.lower() == "black":
-                        # Force a higher opacity for black to ensure visibility
-                        back_color_hex = "&H80000000"  # Semi-transparent black (80 = 50% opacity)
-                        logger.info(f"Using black back_color: {back_color_hex}")
-                    elif back_color.lower() == "red":
-                        back_color_hex = "&H800000FF"  # Semi-transparent red
-                    elif back_color.lower() == "blue":
-                        back_color_hex = "&H80FF0000"  # Semi-transparent blue
-                    elif back_color.lower() == "green":
-                        back_color_hex = "&H8000FF00"  # Semi-transparent green
-                    elif back_color.lower() == "transparent":
-                        back_color_hex = "&H00000000"  # Fully transparent
-                    else:
-                        # Try to handle hex color codes like "#000000" for black
-                        try:
-                            if back_color.startswith("#"):
-                                # Convert HTML/CSS hex color to ASS format
-                                color = back_color.lstrip("#")
-                                if len(color) == 6:
-                                    r, g, b = int(color[0:2], 16), int(color[2:4], 16), int(color[4:6], 16)
-                                    # ASS format is &HAABBGGRR (AA=alpha, BB=blue, GG=green, RR=red)
-                                    back_color_hex = f"&H80{b:02X}{g:02X}{r:02X}"
-                                    logger.info(f"Converted HTML color {back_color} to ASS format: {back_color_hex}")
-                        except Exception as e:
-                            logger.error(f"Error converting color {back_color}: {str(e)}")
-                            # Fall back to default black
-                            back_color_hex = "&H80000000"
-            
-            # FORCE BLACK BACKGROUND - this is critical to prevent red background
-            # The original code might be using a different color format, so we'll force black here
-            back_color_hex = "&H80000000"  # Semi-transparent black
-            logger.warning("Forcing black background color to ensure proper display")
-            
-            # Log the final back_color_hex for debugging
-            logger.info(f"Final back_color_hex: {back_color_hex}")
-            
-            # Adjust font size based on video dimensions and orientation
-            adjusted_font_size = int(font_size * 1.5)
-            
-            # CRITICAL FIX: Set BorderStyle=4 for opaque box style with specific margins
-            # This ensures the background color is properly applied
-            border_style = 4  # Use opaque box style with specific margins
-            outline_width = 2  # Outline width for better visibility
-            
-            # Write the style with all parameters explicitly set
-            # Note: For Thai subtitles, we're using a more compatible style format
-            f.write(f"Style: Default,{font_name},{adjusted_font_size},{primary_color_hex},&H0000FFFF,{outline_color_hex},{back_color_hex},1,0,0,0,100,100,0,0,{border_style},{outline_width},0,{alignment},20,20,{margin_v},1\n\n")
-            
-            # Write events
+            logger.debug("Writing ASS events section")
+            # Write Events
             f.write("[Events]\n")
             f.write("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
             
             # Process each subtitle
-            for i, subtitle in enumerate(subs):
-                start_time = subtitle.start.total_seconds()
-                end_time = subtitle.end.total_seconds()
+            processed_count = 0
+            for sub in subs:
+                # Convert start and end times to ASS format (h:mm:ss.cc)
+                start_time = format_time_ass(sub.start.total_seconds())
+                end_time = format_time_ass(sub.end.total_seconds())
                 
-                # Format the times as ASS format (h:mm:ss.cc)
-                start_formatted = format_time_ass(start_time)
-                end_formatted = format_time_ass(end_time)
-                
-                # Process the text with Thai word segmentation
-                text = subtitle.content
-                
-                # Apply max_words_per_line if specified
-                if max_words_per_line and max_words_per_line > 0:
-                    # Use PyThaiNLP for better word segmentation if available
-                    if PYTHAINLP_AVAILABLE:
-                        try:
-                            # Tokenize the text into words
-                            words = word_tokenize(text, engine="newmm")
-                            
-                            # Log the number of words for debugging
-                            logger.info(f"Thai text tokenized into {len(words)} words with max_words_per_line={max_words_per_line}")
-                            
-                            # Calculate optimal words per line based on video dimensions
-                            # For Thai, we'll use a more conservative approach to ensure readability
-                            optimal_words_per_line = max(10, min(max_words_per_line, 20))  # Between 10 and 20 words
-                            logger.info(f"Using optimal_words_per_line={optimal_words_per_line}")
-                            
-                            # If the number of words is less than optimal_words_per_line, no need to split
-                            if len(words) <= optimal_words_per_line:
-                                # Just use the text as is
-                                logger.info(f"Text has fewer words ({len(words)}) than optimal_words_per_line ({optimal_words_per_line}), no splitting needed")
+                # Process Thai text with proper word segmentation
+                if PYTHAINLP_AVAILABLE:
+                    try:
+                        from pythainlp.tokenize import word_tokenize
+                        
+                        logger.debug(f"Processing subtitle text: '{sub.content}'")
+                        # Tokenize Thai text
+                        words = word_tokenize(sub.content, engine="newmm")
+                        logger.debug(f"Tokenized into {len(words)} words using PyThaiNLP")
+                        
+                        # Apply line breaks based on max_words_per_line or max_width
+                        lines = []
+                        current_line = ""
+                        current_word_count = 0
+                        
+                        for word in words:
+                            # Check if adding this word would exceed max width or max words
+                            if (max_width and len(current_line) + len(word) > max_width) or \
+                               (max_words_per_line and current_word_count >= max_words_per_line):
+                                lines.append(current_line)
+                                current_line = word
+                                current_word_count = 1
                             else:
-                                # Group words into lines based on optimal_words_per_line
-                                lines = []
-                                current_line = []
-                                word_count = 0
-                                
-                                for word in words:
-                                    current_line.append(word)
-                                    word_count += 1
-                                    
-                                    if word_count >= optimal_words_per_line:
-                                        lines.append("".join(current_line))
-                                        current_line = []
-                                        word_count = 0
-                                
-                                # Add any remaining words
                                 if current_line:
-                                    lines.append("".join(current_line))
-                                
-                                # Join lines with newline character
-                                text = "\\N".join(lines)
-                                logger.info(f"Applied optimal_words_per_line={optimal_words_per_line}, resulting in {len(lines)} lines")
-                        except ImportError:
-                            # Fallback to character-based splitting
-                            logger.warning("ImportError in Thai word segmentation, falling back to character-based splitting")
-                            lines = []
-                            if len(text) > 25:
-                                # Try to split at spaces or punctuation
-                                split_points = [m.start() for m in re.finditer(r'[.,!?;: ]', text)]
-                                
-                                current_pos = 0
-                                while current_pos < len(text):
-                                    # Find the best split point within the character limit
-                                    end_pos = min(current_pos + 25, len(text))
-                                    
-                                    # Look for a good split point
-                                    good_splits = [p for p in split_points if p > current_pos and p < end_pos]
-                                    
-                                    if good_splits:
-                                        # Use the last good split point
-                                        split_at = max(good_splits)
-                                        lines.append(text[current_pos:split_at].strip())
-                                        current_pos = split_at
-                                    else:
-                                        # No good split point, just use the max length
-                                        lines.append(text[current_pos:end_pos].strip())
-                                        current_pos = end_pos
-                            else:
-                                # Text is short enough, no need to split
-                                lines = [text]
-                                
-                            # Join the lines with newline character
-                            text = "\\N".join(lines)
-                            logger.info(f"Applied character-based splitting, resulting in {len(lines)} lines")
-                        except Exception as e:
-                            # Catch any other exceptions and log them
-                            logger.error(f"Error in Thai word processing: {str(e)}")
-                            # Don't modify the text in case of other errors
-                            logger.warning("Keeping original text due to processing error")
-                else:
-                    # For non-Thai text, split by words
-                    words = text.split()
-                    lines = []
-                    if len(words) > max_words_per_line:
-                        for j in range(0, len(words), max_words_per_line):
-                            line = ' '.join(words[j:j+max_words_per_line])
-                            lines.append(line)
+                                    current_line += word
+                                else:
+                                    current_line = word
+                                current_word_count += 1
+                        
+                        if current_line:
+                            lines.append(current_line)
+                        
+                        # Join lines with ASS line break
                         text = "\\N".join(lines)
-                    else:
-                        # Text is short enough, no need to split
-                        lines = [text]
-            
-                # Write the event line with explicit background color and style overrides
-                # Use specific ASS override tags to ensure proper display
-                text_with_style = "{\\bord2\\shad0\\3c&H000000&\\4c&H000000&}" + text
-                f.write(f"Dialogue: 0,{start_formatted},{end_formatted},Default,,0,0,0,,{text_with_style}\n")
-            
-        logger.info(f"Successfully converted SRT to ASS with Thai text handling: {ass_path}")
+                        logger.debug(f"Processed Thai text into {len(lines)} lines")
+                        
+                    except Exception as e:
+                        logger.error(f"Error in Thai word segmentation: {str(e)}")
+                        text = sub.content
+                        logger.warning(f"Using original text due to segmentation error")
+                else:
+                    # Fallback if PyThaiNLP is not available
+                    text = sub.content
+                    logger.warning("PyThaiNLP not available, using original text without word segmentation")
+                
+                # Write dialogue line with explicit MarginV
+                dialogue_line = f"Dialogue: 0,{start_time},{end_time},Default,,0,0,{margin_v},,{text}\n"
+                f.write(dialogue_line)
+                processed_count += 1
+                
+                if processed_count % 10 == 0:
+                    logger.debug(f"Processed {processed_count}/{len(subs)} subtitle entries")
+        
+        logger.info(f"Successfully converted SRT to ASS for Thai at {ass_path}")
+        logger.info(f"Total subtitles processed: {processed_count}")
         return ass_path
+        
     except Exception as e:
         logger.error(f"Error converting SRT to ASS for Thai: {str(e)}")
         import traceback
-        logger.error(traceback.format_exc())
-        # Instead of returning None, return the original SRT path
-        # This allows the process to continue even if ASS conversion fails
-        logger.warning(f"Falling back to original SRT file: {srt_path}")
-        return srt_path
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise
 
 def get_available_thai_font():
     """
@@ -515,194 +425,367 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, font_nam
     Returns:
         Path to the output video with subtitles
     """
-    logger.info(f"Adding subtitles to video: {video_path}")
-    
-    # Determine if subtitles are in Thai
-    is_thai = False
     try:
-        with open(subtitle_path, 'r', encoding='utf-8-sig') as f:
-            content = f.read()
-            # Check for Thai characters
-            thai_chars = 'กขฃคฅฆงจฉชซฌญฎฏฐฑฒณดตถทธนบปผฝพฟภมยรลวศษสหฬอฮะัาำิีึืุูเแโใไ'
-            is_thai = any(c in thai_chars for c in content)
-            logger.info(f"Detected {'Thai' if is_thai else 'non-Thai'} subtitles")
-    except Exception as e:
-        logger.warning(f"Error detecting subtitle language: {str(e)}")
-    
-    # Check if the subtitle file contains Thai text
-    try:
-        with open(subtitle_path, 'r', encoding='utf-8-sig') as f:
-            content = f.read()
-            # Check for Thai characters
-            if re.search(r'[ก-๙]', content):
-                is_thai = True
-                # Use a Thai font if Thai text is detected and no specific font is provided
-                if font_name == "Arial":
-                    font_name = get_available_thai_font()  # Get best available Thai font
-                logger.info(f"Thai text detected in subtitles, using font: {font_name}")
-    except Exception as e:
-        logger.warning(f"Error checking for Thai text: {str(e)}")
-    
-    # Process the SRT file to improve formatting and prevent overlapping
-    processed_subtitle_path = process_srt_file(subtitle_path, max_words_per_line, is_thai)
-    
-    # Set default output path if not provided
-    if not output_path:
-        output_path = os.path.splitext(video_path)[0] + "_subtitled" + os.path.splitext(video_path)[1]
-    
-    # Get video dimensions to calculate proper subtitle positioning and scaling
-    video_info = get_video_info(video_path)
-    if not video_info:
-        logger.error("Failed to get video information")
-        return None
-    
-    video_width = int(video_info.get('width', 1280))
-    video_height = int(video_info.get('height', 720))
-    
-    # Calculate aspect ratio
-    aspect_ratio = video_width / video_height
-    is_vertical = aspect_ratio < 1.0  # Vertical video like 9:16
-    
-    # Adjust font size based on video dimensions and orientation
-    if is_vertical:
-        # For vertical videos (like 9:16), scale font size down
-        adjusted_font_size = int(font_size * (video_width / 1080))
-        # Increase font size for Thai text to improve readability
-        if is_thai:
-            adjusted_font_size = int(adjusted_font_size * 1.2)  # 20% larger for Thai
-        # Limit maximum width for vertical videos to prevent overflow
-        if not max_width:
-            max_width = int(video_width * 0.8)  # 80% of video width
-    else:
-        # For horizontal videos, use standard scaling
-        adjusted_font_size = int(font_size * (video_width / 1920))
-        # Increase font size for Thai text to improve readability
-        if is_thai:
-            adjusted_font_size = int(adjusted_font_size * 1.2)  # 20% larger for Thai
-        if not max_width:
-            max_width = int(video_width * 0.9)  # 90% of video width
-    
-    logger.info(f"Video dimensions: {video_width}x{video_height}, Adjusted font size: {adjusted_font_size}, Max width: {max_width}")
-    
-    # Calculate subtitle positioning
-    if x is not None and y is not None:
-        # Use explicit x,y coordinates if provided
-        x_pos = x
-        y_pos = y
-    else:
-        # Calculate based on position parameter
-        if position == "top":
-            y_pos = margin_v
-        elif position == "middle":
-            y_pos = video_height // 2
-        else:  # bottom (default)
-            y_pos = video_height - margin_v
+        logger.info(f"=== STARTING ADD SUBTITLES TO VIDEO PROCESS ===")
+        logger.info(f"Adding subtitles to video: {video_path}")
+        logger.debug(f"Subtitle path: {subtitle_path}")
+        logger.debug(f"Font settings: font_name={font_name}, font_size={font_size}, margin_v={margin_v}")
+        logger.debug(f"Position: {position}, Alignment: {alignment}, Style: {subtitle_style}")
+        logger.debug(f"Colors: line_color={line_color}, outline_color={outline_color}, back_color={back_color}")
         
-        # Center horizontally by default
-        x_pos = video_width // 2
-    
-    # Adjust alignment for FFmpeg
-    if alignment == "left":
-        align_param = 1
-    elif alignment == "right":
-        align_param = 3
-    else:  # center (default)
-        align_param = 2
-    
-    # Set up font formatting
-    font_formatting = ""
-    if bold:
-        font_formatting += ":fontconfig_pattern=weight=bold"
-    if italic:
-        font_formatting += ":fontconfig_pattern=slant=italic"
-    
-    # Set up colors
-    if not line_color:
-        line_color = "white"
-    if not outline_color:
-        outline_color = "black"
-    if not word_color and subtitle_style in ["highlight", "word_by_word", "karaoke"]:
-        word_color = "yellow"
-    
-    # Set up subtitle filter based on style
-    if is_thai:
-        # Create a special ASS file for Thai text
-        thai_ass_path = convert_srt_to_ass_for_thai(
-            processed_subtitle_path, 
-            font_name, 
-            adjusted_font_size, 
-            line_color, 
-            outline_color, 
-            max_words_per_line=max_words_per_line,
-            alignment=align_param,
-            margin_v=margin_v,
-            max_width=max_width,
-            back_color=back_color
-        )
+        # Determine if this is a Thai subtitle file by checking the extension and content
+        is_thai = False
+        if os.path.exists(subtitle_path):
+            if subtitle_path.lower().endswith('.ass'):
+                # Check if the ASS file contains Thai characters
+                with open(subtitle_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    is_thai = any(c in THAI_CHARS for c in content)
+                    logger.info(f"ASS subtitle file contains Thai characters: {is_thai}")
+            elif subtitle_path.lower().endswith('.srt'):
+                # Check if the SRT file contains Thai characters
+                with open(subtitle_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    is_thai = any(c in THAI_CHARS for c in content)
+                    logger.info(f"SRT subtitle file contains Thai characters: {is_thai}")
         
-        # Properly escape the subtitle path for Windows
-        # Handle the case where thai_ass_path might be None (although we fixed that above)
-        if thai_ass_path is None:
-            logger.error("Thai ASS conversion failed, falling back to original subtitle path")
-            thai_ass_path = subtitle_path
+        # Create output path if not provided
+        if not output_path:
+            output_dir = os.path.dirname(video_path)
+            filename = os.path.basename(video_path)
+            name, ext = os.path.splitext(filename)
+            output_path = os.path.join(output_dir, f"{name}_subtitled{ext}")
+            logger.info(f"No output path provided, using: {output_path}")
+        
+        # Process subtitle file
+        processed_subtitle_path = subtitle_path
+        
+        # Adjust font size based on video dimensions
+        adjusted_font_size = font_size
+        
+        # Get video dimensions
+        video_info = get_video_info(video_path)
+        video_width = video_info.get("width", 1280)
+        video_height = video_info.get("height", 720)
+        logger.debug(f"Video dimensions: {video_width}x{video_height}")
+        
+        # Adjust font size based on video resolution
+        if video_width and video_height:
+            # Scale font size based on video resolution
+            # Base resolution is 1280x720
+            scale_factor = min(video_width / 1280, video_height / 720)
+            adjusted_font_size = max(int(font_size * scale_factor), 16)  # Minimum font size of 16
+            logger.info(f"Adjusted font size for video resolution: {font_size} -> {adjusted_font_size}")
+        
+        # Convert alignment string to ASS alignment parameter
+        if isinstance(alignment, str):
+            if alignment.lower() == "left":
+                align_param = 1
+            elif alignment.lower() == "right":
+                align_param = 3
+            else:  # center or any other value
+                align_param = 2
+        else:
+            align_param = alignment
+        logger.debug(f"Alignment parameter: {align_param}")
+        
+        # Convert colors to ASS format if needed
+        if line_color and line_color.startswith('#'):
+            line_color = line_color.lstrip('#')
+            if len(line_color) == 6:
+                r, g, b = line_color[0:2], line_color[2:4], line_color[4:6]
+                line_color = f"&H00{b}{g}{r}"
+                logger.debug(f"Converted line_color to ASS format: {line_color}")
+        elif not line_color:
+            line_color = "&H00FFFFFF"  # Default to white
+            logger.debug(f"Using default line_color: {line_color}")
+        
+        if outline_color and outline_color.startswith('#'):
+            outline_color = outline_color.lstrip('#')
+            if len(outline_color) == 6:
+                r, g, b = outline_color[0:2], outline_color[2:4], outline_color[4:6]
+                outline_color = f"&H00{b}{g}{r}"
+                logger.debug(f"Converted outline_color to ASS format: {outline_color}")
+        elif not outline_color:
+            outline_color = "&H000000FF"  # Default to black
+            logger.debug(f"Using default outline_color: {outline_color}")
+        
+        # Prepare font formatting string
+        font_formatting = ""
+        if bold:
+            font_formatting += ",Bold=1"
+        if italic:
+            font_formatting += ",Italic=1"
+        if underline:
+            font_formatting += ",Underline=1"
+        if strikeout:
+            font_formatting += ",StrikeOut=1"
+        if shadow is not None:
+            font_formatting += f",Shadow={shadow}"
+        if outline is not None:
+            font_formatting += f",Outline={outline}"
+        logger.debug(f"Font formatting: {font_formatting}")
+        
+        # Determine if subtitles are in Thai
+        is_thai = False
+        try:
+            with open(subtitle_path, 'r', encoding='utf-8-sig') as f:
+                content = f.read()
+                # Check for Thai characters
+                thai_chars = 'กขฃคฅฆงจฉชซฌญฎฏฐฑฒณดตถทธนบปผฝพฟภมยรลวศษสหฬอฮะัาำิีึืุูเแโใไ'
+                is_thai = any(c in thai_chars for c in content)
+                logger.info(f"Detected {'Thai' if is_thai else 'non-Thai'} subtitles")
+        except Exception as e:
+            logger.warning(f"Error detecting subtitle language: {str(e)}")
+        
+        # Check if the subtitle file contains Thai text
+        try:
+            with open(subtitle_path, 'r', encoding='utf-8-sig') as f:
+                content = f.read()
+                # Check for Thai characters
+                if re.search(r'[ก-๙]', content):
+                    is_thai = True
+                    # Use a Thai font if Thai text is detected and no specific font is provided
+                    if font_name == "Arial":
+                        font_name = get_available_thai_font()  # Get best available Thai font
+                    logger.info(f"Thai text detected in subtitles, using font: {font_name}")
+        except Exception as e:
+            logger.warning(f"Error checking for Thai text: {str(e)}")
+        
+        # Process the SRT file to improve formatting and prevent overlapping
+        processed_subtitle_path = process_srt_file(subtitle_path, max_words_per_line, is_thai)
+        
+        # Set default output path if not provided
+        if not output_path:
+            output_path = os.path.splitext(video_path)[0] + "_subtitled" + os.path.splitext(video_path)[1]
+        
+        # Get video dimensions to calculate proper subtitle positioning and scaling
+        video_info = get_video_info(video_path)
+        if not video_info:
+            logger.error("Failed to get video information")
+            return None
+        
+        video_width = int(video_info.get('width', 1280))
+        video_height = int(video_info.get('height', 720))
+        
+        # Calculate aspect ratio
+        aspect_ratio = video_width / video_height
+        is_vertical = aspect_ratio < 1.0  # Vertical video like 9:16
+        
+        # Adjust font size based on video dimensions and orientation
+        if is_vertical:
+            # For vertical videos (like 9:16), scale font size down
+            adjusted_font_size = int(font_size * (video_width / 1080))
+            # Increase font size for Thai text to improve readability
+            if is_thai:
+                adjusted_font_size = int(adjusted_font_size * 1.2)  # 20% larger for Thai
+            # Limit maximum width for vertical videos to prevent overflow
+            if not max_width:
+                max_width = int(video_width * 0.8)  # 80% of video width
+        else:
+            # For horizontal videos, use standard scaling
+            adjusted_font_size = int(font_size * (video_width / 1920))
+            # Increase font size for Thai text to improve readability
+            if is_thai:
+                adjusted_font_size = int(adjusted_font_size * 1.2)  # 20% larger for Thai
+            if not max_width:
+                max_width = int(video_width * 0.9)  # 90% of video width
+        
+        logger.info(f"Video dimensions: {video_width}x{video_height}, Adjusted font size: {adjusted_font_size}, Max width: {max_width}")
+        
+        # Calculate subtitle positioning
+        if x is not None and y is not None:
+            # Use explicit x,y coordinates if provided
+            x_pos = x
+            y_pos = y
+        else:
+            # Calculate based on position parameter
+            if position == "top":
+                y_pos = margin_v
+            elif position == "middle":
+                y_pos = video_height // 2
+            else:  # bottom (default)
+                y_pos = video_height - margin_v
+        
+            # Center horizontally by default
+            x_pos = video_width // 2
+    
+        # Adjust alignment for FFmpeg
+        if alignment == "left":
+            align_param = 1
+        elif alignment == "right":
+            align_param = 3
+        else:  # center (default)
+            align_param = 2
+    
+        # Set up font formatting
+        font_formatting = ""
+        if bold:
+            font_formatting += ":fontconfig_pattern=weight=bold"
+        if italic:
+            font_formatting += ":fontconfig_pattern=slant=italic"
+    
+        # Set up colors
+        if not line_color:
+            line_color = "white"
+        if not outline_color:
+            outline_color = "black"
+        if not word_color and subtitle_style in ["highlight", "word_by_word", "karaoke"]:
+            word_color = "yellow"
+    
+        # Set up subtitle filter based on style
+        if is_thai:
+            # Create a special ASS file for Thai text
+            thai_ass_path = convert_srt_to_ass_for_thai(
+                processed_subtitle_path, 
+                font_name, 
+                adjusted_font_size, 
+                line_color, 
+                outline_color, 
+                max_words_per_line=max_words_per_line,
+                alignment=align_param,
+                margin_v=margin_v,
+                max_width=max_width,
+                back_color=back_color
+            )
             
-        escaped_subtitle_path = thai_ass_path.replace('\\', '\\\\')
-        
-        # Determine the correct subtitle filter based on file extension
-        if thai_ass_path.endswith('.ass'):
-            # Use ASS filter for ASS files
-            subtitle_filter = f"ass={escaped_subtitle_path}"
+            # Properly escape the subtitle path for Windows
+            # Handle the case where thai_ass_path might be None (although we fixed that above)
+            if thai_ass_path is None:
+                logger.error("Thai ASS conversion failed, falling back to original subtitle path")
+                thai_ass_path = subtitle_path
+            
+            escaped_subtitle_path = thai_ass_path.replace('\\', '\\\\')
+            
+            # Determine the correct subtitle filter based on file extension
+            if thai_ass_path.endswith('.ass'):
+                # Use ASS filter for ASS files
+                subtitle_filter = f"ass={escaped_subtitle_path}"
+            else:
+                # Use subtitles filter for SRT files
+                subtitle_filter = f"subtitles={escaped_subtitle_path}"
+            
+            logger.info(f"Using subtitle filter: {subtitle_filter}")
+            
+            # Add voice-over delay of 0.2 seconds for Thai videos to ensure synchronization
+            voice_over_delay = 0.2
+            logger.info(f"Adding voice-over delay of {voice_over_delay}s for Thai video")
+            # Use the adelay filter to delay audio
+            audio_filter = f"adelay={int(voice_over_delay*1000)}:all=1"
+            
+            # For Thai subtitles, use a simpler command that's known to work with Thai text
+            # Use -vf instead of -filter_complex for simpler processing
+            ffmpeg_cmd = [
+                "ffmpeg", "-y", 
+                "-i", video_path,
+                "-vf", subtitle_filter,
+                "-af", audio_filter,
+                "-c:v", "libx264", "-crf", "18", "-preset", "veryfast",
+                "-c:a", "aac", "-b:a", "192k",
+                output_path
+            ]
+            
+            # Log the full command for debugging
+            logger.info(f"Thai subtitle FFmpeg command: {' '.join(ffmpeg_cmd)}")
         else:
-            # Use subtitles filter for SRT files
-            subtitle_filter = f"subtitles={escaped_subtitle_path}"
+            # Calculate subtitle filter
+            subtitle_filter = ""
+            
+            # Check if subtitle file is ASS format
+            if subtitle_path.lower().endswith('.ass'):
+                logger.info(f"Subtitle file extension: .ass")
+                # Use ASS filter for ASS subtitles
+                subtitle_filter = f"ass={subtitle_path}"
+            else:
+                logger.info(f"Subtitle file extension: {os.path.splitext(subtitle_path)[1]}")
+                # For SRT and other formats, use subtitles filter with styling
+                
+                # Determine subtitle position
+                if position == "top":
+                    y_pos = f"10+{margin_v}"  # 10 pixels from top + margin
+                elif position == "middle":
+                    y_pos = f"(h-text_h)/2"  # Middle of the video
+                else:  # bottom (default)
+                    y_pos = f"h-text_h-10-{margin_v}"  # 10 pixels from bottom - margin
+                
+                # Override position if x or y are explicitly provided
+                if x is not None:
+                    x_pos = x
+                else:
+                    x_pos = "(w-text_w)/2"  # Center horizontally
+                    
+                if y is not None:
+                    y_pos = y
+                
+                # Determine text alignment
+                if alignment == "left":
+                    align_value = 1
+                elif alignment == "right":
+                    align_value = 3
+                else:  # center (default)
+                    align_value = 2
+                
+                # Determine font formatting
+                font_formatting = ""
+                if bold:
+                    font_formatting += ":force_style='Bold=1'"
+                if italic:
+                    font_formatting += ":force_style='Italic=1'"
+                if underline:
+                    font_formatting += ":force_style='Underline=1'"
+                if strikeout:
+                    font_formatting += ":force_style='Strikeout=1'"
+                
+                # Add shadow and outline if specified
+                if shadow is not None:
+                    font_formatting += f":force_style='Shadow={shadow}'"
+                if outline is not None:
+                    font_formatting += f":force_style='Outline={outline}'"
+                
+                # Add margin values if specified
+                if margin_v is not None:
+                    font_formatting += f":force_style='MarginV={margin_v}'"
+                if margin_l is not None:
+                    font_formatting += f":force_style='MarginL={margin_l}'"
+                if margin_r is not None:
+                    font_formatting += f":force_style='MarginR={margin_r}'"
+                
+                # Determine text color
+                if line_color:
+                    # Convert color to ASS format if needed
+                    if line_color.startswith('#'):
+                        # Convert from hex to ASS format (&HAABBGGRR)
+                        line_color = line_color.lstrip('#')
+                        if len(line_color) == 6:
+                            r, g, b = line_color[0:2], line_color[2:4], line_color[4:6]
+                            line_color = f"&H00{b}{g}{r}"
+                    font_formatting += f":force_style='PrimaryColour={line_color}'"
+                
+                # Add background color if specified
+                if back_color:
+                    # Convert color to ASS format if needed
+                    if back_color.startswith('#'):
+                        # Convert from hex to ASS format (&HAABBGGRR)
+                        back_color = back_color.lstrip('#')
+                        if len(back_color) == 6:
+                            r, g, b = back_color[0:2], back_color[2:4], back_color[4:6]
+                            back_color = f"&H00{b}{g}{r}"
+                    font_formatting += f":force_style='BackColour={back_color}'"
+                
+                # Add outline color if specified
+                if outline_color:
+                    # Convert color to ASS format if needed
+                    if outline_color.startswith('#'):
+                        # Convert from hex to ASS format (&HAABBGGRR)
+                        outline_color = outline_color.lstrip('#')
+                        if len(outline_color) == 6:
+                            r, g, b = outline_color[0:2], outline_color[2:4], outline_color[4:6]
+                            outline_color = f"&H00{b}{g}{r}"
+                    font_formatting += f":force_style='OutlineColour={outline_color}'"
+                
+                # Create the subtitle filter
+                subtitle_filter = f"subtitles={processed_subtitle_path}:force_style='FontName={font_name},FontSize={adjusted_font_size},Alignment={align_value}'{font_formatting}"
         
-        logger.info(f"Using subtitle filter: {subtitle_filter}")
-        
-        # Add voice-over delay of 0.2 seconds for Thai videos to ensure synchronization
-        voice_over_delay = 0.2
-        logger.info(f"Adding voice-over delay of {voice_over_delay}s for Thai video")
-        # Use the adelay filter to delay audio
-        audio_filter = f"adelay={int(voice_over_delay*1000)}:all=1"
-        
-        # For Thai subtitles, use a simpler command that's known to work with Thai text
-        # Use -vf instead of -filter_complex for simpler processing
-        ffmpeg_cmd = [
-            "ffmpeg", "-y", 
-            "-i", video_path,
-            "-vf", subtitle_filter,
-            "-af", audio_filter,
-            "-c:v", "libx264", "-crf", "18", "-preset", "veryfast",
-            "-c:a", "aac", "-b:a", "192k",
-            output_path
-        ]
-        
-        # Log the full command for debugging
-        logger.info(f"Thai subtitle FFmpeg command: {' '.join(ffmpeg_cmd)}")
-    else:
-        if subtitle_style == "classic":
-            # Classic style with simple text - ensure text is visible with proper formatting
-            subtitle_filter = f"subtitles='{processed_subtitle_path}':force_style='FontName={font_name},FontSize={adjusted_font_size},PrimaryColour={line_color},OutlineColour={outline_color},BorderStyle=1,Outline=1,Shadow=1,MarginV={margin_v},Alignment={align_param}{font_formatting}'"
-        
-        elif subtitle_style == "modern":
-            # Modern style with background box - ensure text is visible with proper background
-            subtitle_filter = f"subtitles='{processed_subtitle_path}':force_style='FontName={font_name},FontSize={adjusted_font_size},PrimaryColour={line_color},OutlineColour={outline_color},BackColour=&H80000000,BorderStyle=3,Outline=1,Shadow=1,MarginV={margin_v},Alignment={align_param}{font_formatting}'"
-        
-        elif subtitle_style in ["highlight", "karaoke", "word_by_word"]:
-            # Convert SRT to ASS first
-            ass_subtitle_path = processed_subtitle_path.replace('.srt', '.ass')
-            convert_srt_to_ass(processed_subtitle_path, ass_subtitle_path, font_name, adjusted_font_size, 
-                             line_color, outline_color, word_color, align_param, margin_v, 
-                             subtitle_style, max_width, all_caps, font_formatting)
-            subtitle_filter = f"ass='{ass_subtitle_path}'"
-        
-        elif subtitle_style == "underline":
-            # Underlined text - ensure text is visible
-            subtitle_filter = f"subtitles='{processed_subtitle_path}':force_style='FontName={font_name},FontSize={adjusted_font_size},PrimaryColour={line_color},OutlineColour={outline_color},BorderStyle=1,Outline=1,Shadow=1,MarginV={margin_v},Alignment={align_param},Underline=1{font_formatting}'"
-        
-        else:
-            # Default to classic if style not recognized
-            subtitle_filter = f"subtitles='{processed_subtitle_path}':force_style='FontName={font_name},FontSize={adjusted_font_size},PrimaryColour={line_color},OutlineColour={outline_color},BorderStyle=1,Outline=1,Shadow=1,MarginV={margin_v},Alignment={align_param}{font_formatting}'"
-    
         # No audio delay for non-Thai videos
         ffmpeg_cmd = [
             "ffmpeg", "-y", "-i", video_path, 
@@ -924,15 +1007,8 @@ def process_srt_file(subtitle_path, max_words_per_line=7, is_thai=False):
                                 lines.append(line)
                             text = '\n'.join(lines)
                         else:
-                            # Join all words appropriately
-                            text = ""
-                            for word in all_words:
-                                if any(c in THAI_CHARS for c in word):
-                                    text += word
-                                else:
-                                    if text and not text.endswith(" "):
-                                        text += " "
-                                    text += word
+                            # Text is short enough, no need to split
+                            lines = [text]
                         
                         # Ensure subtitle duration is not too long
                         end_time = subtitle.end

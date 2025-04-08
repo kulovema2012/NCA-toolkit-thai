@@ -122,17 +122,21 @@ def script_enhanced_auto_caption():
     }
     """
     try:
+        logger.info("=== STARTING SCRIPT-ENHANCED AUTO-CAPTION PROCESS ===")
         # Check if request has JSON data
         if not request.is_json:
+            logger.error("Request must be JSON")
             return jsonify({"status": "error", "message": "Request must be JSON"}), 400
         
         # Parse request data
         data = request.get_json()
+        logger.debug(f"Received request data: {json.dumps(data, indent=2)}")
         
         # Validate required parameters
         required_params = ["video_url", "script_text"]
         for param in required_params:
             if param not in data:
+                logger.error(f"Missing required parameter: {param}")
                 return jsonify({"status": "error", "message": f"Missing required parameter: {param}"}), 400
         
         # Extract parameters
@@ -174,13 +178,16 @@ def script_enhanced_auto_caption():
         
         # Validate URLs for template variables that might not have been resolved
         if video_url and (video_url.startswith("{{") or video_url.endswith("}}")):
+            logger.error("Invalid video_url: Template variable was not properly resolved")
             return jsonify({"status": "error", "message": "Invalid video_url: Template variable was not properly resolved"}), 400
             
         if audio_url and (audio_url.startswith("{{") or audio_url.endswith("}}")):
+            logger.error("Invalid audio_url: Template variable was not properly resolved")
             return jsonify({"status": "error", "message": "Invalid audio_url: Template variable was not properly resolved"}), 400
             
         # Validate script text for template variables
         if script_text and (script_text.startswith("{{") or script_text.endswith("}}")):
+            logger.error("Invalid script_text: Template variable was not properly resolved")
             return jsonify({"status": "error", "message": "Invalid script_text: Template variable was not properly resolved"}), 400
         
         # Always use cloud storage for responses
@@ -513,7 +520,14 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
             subtitle_settings = {
                 "font_name": settings_obj.get("font_name", "Arial"),
                 "font_size": settings_obj.get("font_size", 24),
-                "max_width": settings_obj.get("max_width", 40)
+                "max_width": settings_obj.get("max_width", 40),
+                "margin_v": settings_obj.get("margin_v", 30),  # Add margin_v parameter
+                "line_color": settings_obj.get("line_color", "#FFFFFF"),
+                "outline_color": settings_obj.get("outline_color", "#000000"),
+                "back_color": settings_obj.get("back_color", "&H80000000"),
+                "alignment": settings_obj.get("alignment", 2),
+                "max_words_per_line": settings_obj.get("max_words_per_line", 15),
+                "subtitle_style": settings_obj.get("subtitle_style", "modern")
             }
             
             # Call the enhanced subtitles function with the new signature
