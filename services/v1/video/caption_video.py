@@ -412,7 +412,7 @@ def get_available_thai_font():
     logger.info("Using default Thai font: Sarabun")
     return "Sarabun"
 
-@cache_result
+# Remove the cache_result decorator to ensure parameter changes are recognized
 def add_subtitles_to_video(video_path, subtitle_path, output_path=None, font_name="Arial", font_size=24, 
                           position="bottom", margin_v=30, subtitle_style="classic", max_width=None,
                           line_color=None, word_color=None, outline_color=None, all_caps=False,
