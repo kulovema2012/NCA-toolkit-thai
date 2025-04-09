@@ -363,95 +363,45 @@ def enhance_subtitles_from_segments(segments, script_text, language="en", settin
         Tuple of (srt_path, ass_path)
     """
     try:
-        logger = logging.getLogger(__name__)
-        logger.info("Starting subtitle enhancement process")
+        logger.info(f"Enhancing subtitles from {len(segments)} segments")
         
-        # Create a temporary directory for outputs
+        # Create a temporary directory for subtitle files
         temp_dir = tempfile.mkdtemp()
         logger.debug(f"Created temporary directory: {temp_dir}")
         
-        # Convert settings to object if it's a string
-        settings_obj = json.loads(settings) if isinstance(settings, str) else settings
-        logger.debug(f"Parsed settings: {json.dumps(settings_obj, indent=2)}")
-        
-        # Set default font name if not provided
-        if "font_name" not in settings_obj:
-            if language.lower() == "th":
-                settings_obj["font_name"] = "Sarabun"  # Default to Sarabun for Thai
-                logger.debug(f"Thai language detected, defaulting to Sarabun font")
-            else:
-                settings_obj["font_name"] = "Arial"  # Default to Arial for other languages
-                logger.debug(f"Non-Thai language detected, defaulting to Arial font")
-        else:
-            logger.debug(f"Using provided font: {settings_obj['font_name']}")
-        
-        font_name = settings_obj.get("font_name", "Arial")
-        font_size = settings_obj.get("font_size", 24)
-        max_width = settings_obj.get("max_width", 40)
-        
-        # For Thai language, ensure we're using Sarabun font
-        if language.lower() == "th" and font_name.lower() != "sarabun":
-            logger.info(f"Thai language detected, switching font from {font_name} to Sarabun for better Thai support")
-            font_name = "Sarabun"
-        
-        logger.info(f"Using font: {font_name}, size: {font_size}, max width: {max_width}")
-        
-        # Extract all styling parameters with detailed logging
-        bold = settings_obj.get("bold", True)  # Default to bold for better readability
-        italic = settings_obj.get("italic", False)
-        underline = settings_obj.get("underline", False)
-        strikeout = settings_obj.get("strikeout", False)
-        outline = settings_obj.get("outline", True)  # Default to outline for better contrast
-        shadow = settings_obj.get("shadow", True)  # Default to shadow for better readability
-        position = settings_obj.get("position", "bottom")  # Default to bottom position
-        line_color = settings_obj.get("line_color", "white")  # Default to white text
-        outline_color = settings_obj.get("outline_color", "black")  # Default to black outline
-        margin_v = settings_obj.get("margin_v", 30)  # Default to 30px vertical margin as requested
-        
-        logger.debug(f"Text styling: bold={bold}, italic={italic}, underline={underline}, strikeout={strikeout}")
-        logger.debug(f"Effects: outline={outline}, shadow={shadow}")
-        logger.debug(f"Position: {position}, margin_v={margin_v}")
-        logger.debug(f"Colors: line_color={line_color}, outline_color={outline_color}")
-        
-        # For Thai language, ensure we have proper styling
-        if language.lower() == "th":
-            logger.debug("Applying Thai-specific subtitle styling")
+        # Extract settings
+        if settings is None:
+            settings = {}
             
-            # Increase font size slightly for better Thai readability if not already set
-            if "font_size" not in settings_obj:
-                font_size = 28
-                logger.debug(f"Increased font size to {font_size} for Thai readability")
-            
-            # Ensure bold is enabled for Thai text
-            bold = True
-            logger.debug("Enabled bold formatting for Thai text")
-            
-            # Ensure outline and shadow for better readability against any background
-            outline = True
-            shadow = True
-            logger.debug("Enabled outline and shadow for better Thai text contrast")
-            
-            # Add a visible text box for Thai subtitles
-            border_style = 4  # Set to 4 for a visible text box with background
-            outline_size = 3.5  # Increase outline thickness
-            back_color = "&H60000000"  # Semi-transparent black background (60% opacity)
-            logger.debug(f"Using text box with background (border_style={border_style}, outline_size={outline_size}, back_color={back_color})")
-            
-            # Set a reasonable max_words_per_line for Thai
-            max_words_per_line = 10
-            logger.debug(f"Set max_words_per_line to {max_words_per_line} for Thai text")
-            
-            # Set a reasonable max_width for Thai
-            if "max_width" not in settings_obj:
-                max_width = 40
-                logger.debug(f"Set max_width to {max_width} for Thai text")
-        else:
-            logger.debug("Applying standard subtitle styling")
-            border_style = 1  # Default outline only
-            outline_size = 2.0
-            back_color = "&H80000000"  # Default semi-transparent background
-            max_words_per_line = 7
-            logger.debug(f"Using standard styling (border_style={border_style}, outline_size={outline_size}, back_color={back_color}, max_words_per_line={max_words_per_line})")
+        font_name = settings.get("font_name")
+        font_size = settings.get("font_size", 24)
+        position = settings.get("position", "bottom")
+        margin_v = settings.get("margin_v", 30)
+        max_width = settings.get("max_width", 90)
+        line_color = settings.get("line_color", "white")
+        outline_color = settings.get("outline_color", "black")
+        word_color = settings.get("word_color", "#FFFF00")
+        all_caps = settings.get("all_caps", False)
+        max_words_per_line = settings.get("max_words_per_line", 7)
+        alignment = settings.get("alignment", "center")
+        bold = settings.get("bold", True)
+        italic = settings.get("italic", False)
+        underline = settings.get("underline", False)
+        strikeout = settings.get("strikeout", False)
+        outline = settings.get("outline", True)
+        shadow = settings.get("shadow", True)
+        border_style = settings.get("border_style", 1)
+        outline_size = settings.get("outline_size", 2.0)
+        back_color = settings.get("back_color", "&H80000000")
+        
+        # Check for custom x, y positioning
+        custom_position = False
+        pos_x = settings.get("x")
+        pos_y = settings.get("y")
+        
+        if pos_x is not None and pos_y is not None:
+            custom_position = True
+            logger.debug(f"Using custom position coordinates: x={pos_x}, y={pos_y}")
         
         # Convert position to ASS alignment number
         # ASS alignment values:
@@ -497,6 +447,9 @@ def enhance_subtitles_from_segments(segments, script_text, language="en", settin
             else:
                 alignment = 5  # Middle-center
                 logger.debug("Final alignment: middle-center (5)")
+            # For middle position, set margin_v to 0 to ensure it's truly centered
+            margin_v = 0
+            logger.debug(f"Setting margin_v to 0 for middle position")
         else:  # bottom or any other value
             logger.debug("Vertical position: bottom")
             if horizontal_align == 1:
@@ -662,10 +615,18 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 logger.debug(f"Using non-Thai text as is: '{text}'")
             
             # Add the dialogue line
-            if position.lower() == "middle":
-                # For middle position, set MarginV to 0 in the dialogue line to ensure it's centered
+            if custom_position:
+                # Use custom x,y coordinates for positioning
+                text = "{\\an5\\pos(" + str(pos_x) + "," + str(pos_y) + ")}" + text
                 dialogue_line = f"Dialogue: 0,{start_time_ass},{end_time_ass},Default,,0,0,0,,{text}\n"
-                logger.debug(f"Generated dialogue line for middle position with MarginV=0")
+                logger.debug(f"Generated dialogue line with custom positioning at x={pos_x}, y={pos_y}")
+            elif position.lower() == "middle":
+                # For middle position, set MarginV to 0 in the dialogue line to ensure it's centered
+                # Use the \pos tag to force vertical positioning in the middle
+                # Calculate middle position (PlayResY/2 = 540 for 1080p video)
+                text = "{\\an5\\pos(960,540)}" + text
+                dialogue_line = f"Dialogue: 0,{start_time_ass},{end_time_ass},Default,,0,0,0,,{text}\n"
+                logger.debug(f"Generated dialogue line for middle position with explicit positioning")
             else:
                 dialogue_line = f"Dialogue: 0,{start_time_ass},{end_time_ass},Default,,0,0,{margin_v},,{text}\n"
                 logger.debug(f"Generated dialogue line with margin_v={margin_v}")
