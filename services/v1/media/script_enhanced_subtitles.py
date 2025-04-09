@@ -570,7 +570,7 @@ PlayResY: 1080
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{font_name},{font_size},&HFFFFFF,&HFFFFFF,&H000000,{back_color},{1 if bold else 0},{1 if italic else 0},{1 if underline else 0},{1 if strikeout else 0},100,100,0,0,{border_style},{outline_size},{2 if shadow else 0},{alignment},20,20,{margin_v},1
+Style: Default,{font_name},{font_size},&HFFFFFF,&HFFFFFF,&H000000,{back_color},{1 if bold else 0},{1 if italic else 0},{1 if underline else 0},{1 if strikeout else 0},100,100,0,0,{border_style},{outline_size if outline else 0},{2 if shadow else 0},{alignment},20,20,{margin_v},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -632,14 +632,43 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 logger.debug(f"Final text with {len(lines)} lines: '{text}'")
                 
                 # Add styling tags for better visibility
-                text = "{\\bord3.5\\shad2\\b1}" + text
-                logger.debug("Added ASS styling tags for better visibility")
+                style_tags = "{"
+                
+                # Apply bold if requested
+                if bold:
+                    style_tags += "\\b1"
+                else:
+                    style_tags += "\\b0"
+                
+                # Apply outline if requested
+                if outline:
+                    style_tags += f"\\bord{outline_size}"
+                else:
+                    style_tags += "\\bord0"
+                
+                # Apply shadow if requested
+                if shadow:
+                    style_tags += "\\shad2"
+                else:
+                    style_tags += "\\shad0"
+                
+                # Close the style tag
+                style_tags += "}"
+                
+                # Apply the styling to the text
+                text = style_tags + text
+                logger.debug(f"Added custom ASS styling tags: {style_tags}")
             else:
                 logger.debug(f"Using non-Thai text as is: '{text}'")
             
             # Add the dialogue line
-            dialogue_line = f"Dialogue: 0,{start_time_ass},{end_time_ass},Default,,0,0,{margin_v},,{text}\n"
-            logger.debug(f"Generated dialogue line with margin_v={margin_v}")
+            if position.lower() == "middle":
+                # For middle position, set MarginV to 0 in the dialogue line to ensure it's centered
+                dialogue_line = f"Dialogue: 0,{start_time_ass},{end_time_ass},Default,,0,0,0,,{text}\n"
+                logger.debug(f"Generated dialogue line for middle position with MarginV=0")
+            else:
+                dialogue_line = f"Dialogue: 0,{start_time_ass},{end_time_ass},Default,,0,0,{margin_v},,{text}\n"
+                logger.debug(f"Generated dialogue line with margin_v={margin_v}")
             ass_content += dialogue_line
         
         # Write the ASS file

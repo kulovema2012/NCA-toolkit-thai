@@ -461,6 +461,7 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, font_nam
     logger.debug(f"Font settings: font_name={font_name}, font_size={font_size}, margin_v={margin_v}")
     logger.debug(f"Position: {position}, Alignment: {alignment}, Style: {subtitle_style}")
     logger.debug(f"Colors: line_color={line_color}, outline_color={outline_color}, back_color={back_color}")
+    logger.debug(f"Styling: outline={outline}, shadow={shadow}, bold={bold}, italic={italic}, underline={underline}, strikeout={strikeout}")
     
     # Determine if this is a Thai subtitle file by checking the extension and content
     is_thai = False
@@ -630,7 +631,39 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, font_nam
             subtitle_filter += f",BackColour={back_color}"
         
         # Add alignment and position
-        subtitle_filter += f",Alignment={alignment},MarginV={margin_v}'"
+        subtitle_filter += f",Alignment={alignment},MarginV={margin_v}"
+        
+        # Add outline and shadow settings
+        if outline:
+            subtitle_filter += ",Outline=3"
+        else:
+            subtitle_filter += ",Outline=0"
+            
+        if shadow:
+            subtitle_filter += ",Shadow=2"
+        else:
+            subtitle_filter += ",Shadow=0"
+            
+        # Add bold, italic, underline, and strikeout settings
+        if bold:
+            subtitle_filter += ",Bold=1"
+        else:
+            subtitle_filter += ",Bold=0"
+            
+        if italic:
+            subtitle_filter += ",Italic=1"
+        else:
+            subtitle_filter += ",Italic=0"
+            
+        if underline:
+            subtitle_filter += ",Underline=1"
+        else:
+            subtitle_filter += ",Underline=0"
+            
+        if strikeout:
+            subtitle_filter += ",StrikeOut=1"
+        else:
+            subtitle_filter += ",StrikeOut=0"
         
         logger.debug(f"Subtitle filter: {subtitle_filter}")
         
@@ -1198,6 +1231,8 @@ def process_captioning_v1(video_url, captions, settings=None, job_id=None, webho
         italic = settings.get('italic', False)
         underline = settings.get('underline', False)
         strikeout = settings.get('strikeout', False)
+        shadow = settings.get('shadow', None)
+        outline = settings.get('outline', None)
         back_color = settings.get('back_color', None)
         
         # Special handling for Thai text
@@ -1243,6 +1278,8 @@ def process_captioning_v1(video_url, captions, settings=None, job_id=None, webho
             italic=italic,
             underline=underline,
             strikeout=strikeout,
+            shadow=shadow,
+            outline=outline,
             back_color=back_color,
             job_id=job_id
         )
@@ -1323,96 +1360,198 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path, font_size=24,
     Returns:
         Path to the output video
     """
-    try:
-        logger = logging.getLogger(__name__)
-        logger.info(f"Adding subtitles to video: {video_path}")
-        logger.info(f"Subtitle file: {subtitle_path}")
-        logger.info(f"Output path: {output_path}")
-        
-        # Check if subtitle file exists
-        if not os.path.exists(subtitle_path):
-            logger.error(f"Subtitle file not found: {subtitle_path}")
-            raise FileNotFoundError(f"Subtitle file not found: {subtitle_path}")
+    logger.info(f"Adding subtitles to video: {video_path}")
+    logger.info(f"Subtitle file: {subtitle_path}")
+    logger.info(f"Output path: {output_path}")
+    
+    # Check if subtitle file exists
+    if not os.path.exists(subtitle_path):
+        logger.error(f"Subtitle file not found: {subtitle_path}")
+        raise FileNotFoundError(f"Subtitle file not found: {subtitle_path}")
             
-        # Get subtitle file extension
-        _, ext = os.path.splitext(subtitle_path)
-        ext = ext.lower()
-        
-        logger.info(f"Subtitle file extension: {ext}")
-        
-        # Check file sizes
-        video_size = os.path.getsize(video_path)
-        subtitle_size = os.path.getsize(subtitle_path)
-        logger.info(f"Video file size: {video_size} bytes")
-        logger.info(f"Subtitle file size: {subtitle_size} bytes")
-        
-        # Read first few lines of subtitle file to verify content
-        with open(subtitle_path, 'r', encoding='utf-8') as f:
-            subtitle_preview = f.read(1000)  # Read first 1000 chars
-        logger.info(f"Subtitle file preview: {subtitle_preview[:200]}...")  # Log first 200 chars
-        
-        # Determine the correct subtitle filter based on file extension
-        if ext == '.ass':
-            # For ASS files, use the ass filter with explicit file path
-            subtitle_path_fixed = subtitle_path.replace('\\', '/')
-            ffmpeg_cmd = [
-                "ffmpeg", "-y",
-                "-i", video_path,
-                "-vf", f"ass='{subtitle_path_fixed}'",
-                "-c:v", "libx264", "-crf", "23",
-                "-c:a", "copy",
-                "-max_muxing_queue_size", "9999",  # Prevent muxing queue errors
-                output_path
-            ]
-            logger.info("Using ASS subtitle filter")
-        elif ext == '.srt':
-            # For SRT files, use the subtitles filter with styling options
-            subtitle_path_fixed = subtitle_path.replace('\\', '/')
-            ffmpeg_cmd = [
-                "ffmpeg", "-y",
-                "-i", video_path,
-                "-vf", f"subtitles='{subtitle_path_fixed}':force_style='FontName={font_name},FontSize={font_size},BackColour=&H80000000,BorderStyle=4,Outline=1,Shadow=0'",
-                "-c:v", "libx264", "-crf", "23",
-                "-c:a", "copy",
-                "-max_muxing_queue_size", "9999",  # Prevent muxing queue errors
-                output_path
-            ]
-            logger.info("Using SRT subtitle filter with styling")
-        else:
-            logger.warning(f"Unknown subtitle format: {ext}, defaulting to subtitles filter")
-            ffmpeg_cmd = [
-                "ffmpeg", "-y",
-                "-i", video_path,
-                "-vf", f"subtitles='{subtitle_path}'",
-                "-c:v", "libx264", "-crf", "23",
-                "-c:a", "copy",
-                "-max_muxing_queue_size", "9999",  # Prevent muxing queue errors
-                output_path
-            ]
-        
-        logger.info(f"Running FFmpeg command: {' '.join(ffmpeg_cmd)}")
-        
-        # Run FFmpeg
-        process = subprocess.run(ffmpeg_cmd, check=True, capture_output=True, text=True)
-        
-        # Log FFmpeg output
-        if process.stdout:
-            logger.info(f"FFmpeg stdout: {process.stdout}")
-        if process.stderr:
-            logger.info(f"FFmpeg stderr: {process.stderr}")
-        
-        # Check if output file was created
-        if os.path.exists(output_path):
-            output_size = os.path.getsize(output_path)
-            logger.info(f"Output file created successfully: {output_path} ({output_size} bytes)")
-            return output_path
-        else:
-            logger.error(f"Output file was not created: {output_path}")
-            raise FileNotFoundError(f"Output file was not created: {output_path}")
+    # Get subtitle file extension
+    _, ext = os.path.splitext(subtitle_path)
+    ext = ext.lower()
+    
+    logger.info(f"Subtitle file extension: {ext}")
+    
+    # Check file sizes
+    video_size = os.path.getsize(video_path)
+    subtitle_size = os.path.getsize(subtitle_path)
+    logger.info(f"Video file size: {video_size} bytes")
+    logger.info(f"Subtitle file size: {subtitle_size} bytes")
+    
+    # Read first few lines of subtitle file to verify content
+    with open(subtitle_path, 'r', encoding='utf-8') as f:
+        subtitle_preview = f.read(1000)  # Read first 1000 chars
+    logger.info(f"Subtitle file preview: {subtitle_preview[:200]}...")  # Log first 200 chars
+    
+    # Determine the correct subtitle filter based on file extension
+    if ext == '.ass':
+        # For ASS files, use the ass filter with explicit file path
+        subtitle_path_fixed = subtitle_path.replace('\\', '/')
+        ffmpeg_cmd = [
+            "ffmpeg", "-y",
+            "-i", video_path,
+            "-vf", f"ass='{subtitle_path_fixed}'",
+            "-c:v", "libx264", "-crf", "23",
+            "-c:a", "copy",
+            "-max_muxing_queue_size", "9999",  # Prevent muxing queue errors
+            output_path
+        ]
+        logger.info("Using ASS subtitle filter")
+    elif ext == '.srt':
+        # For SRT files, use the subtitles filter with styling options
+        subtitle_path_fixed = subtitle_path.replace('\\', '/')
+        ffmpeg_cmd = [
+            "ffmpeg", "-y",
+            "-i", video_path,
+            "-vf", f"subtitles='{subtitle_path_fixed}':force_style='FontName={font_name},FontSize={font_size},BackColour=&H80000000,BorderStyle=4,Outline=1,Shadow=0'",
+            "-c:v", "libx264", "-crf", "23",
+            "-c:a", "copy",
+            "-max_muxing_queue_size", "9999",  # Prevent muxing queue errors
+            output_path
+        ]
+        logger.info("Using SRT subtitle filter with styling")
+    else:
+        logger.warning(f"Unknown subtitle format: {ext}, defaulting to subtitles filter")
+        ffmpeg_cmd = [
+            "ffmpeg", "-y",
+            "-i", video_path,
+            "-vf", f"subtitles='{subtitle_path}'",
+            "-c:v", "libx264", "-crf", "23",
+            "-c:a", "copy",
+            "-max_muxing_queue_size", "9999",  # Prevent muxing queue errors
+            output_path
+        ]
+    
+    logger.info(f"Running FFmpeg command: {' '.join(ffmpeg_cmd)}")
+    
+    # Run FFmpeg
+    process = subprocess.run(ffmpeg_cmd, check=True, capture_output=True, text=True)
+    
+    # Log FFmpeg output
+    if process.stdout:
+        logger.info(f"FFmpeg stdout: {process.stdout}")
+    if process.stderr:
+        logger.info(f"FFmpeg stderr: {process.stderr}")
+    
+    # Check if output file was created
+    if os.path.exists(output_path):
+        output_size = os.path.getsize(output_path)
+        logger.info(f"Output file created successfully: {output_path} ({output_size} bytes)")
+        return output_path
+    else:
+        logger.error(f"Output file was not created: {output_path}")
+        raise FileNotFoundError(f"Output file was not created: {output_path}")
             
-    except subprocess.CalledProcessError as e:
-        logger.error(f"FFmpeg error: {e.stderr}")
-        raise ValueError(f"FFmpeg error: {e.stderr}")
-    except Exception as e:
-        logger.error(f"Error adding subtitles to video: {str(e)}")
-        raise
+def add_subtitles_to_video(video_path, subtitle_path, output_path, font_size=24, font_name="Arial", position="bottom", alignment=2, margin_v=30, subtitle_style="classic", line_color="white", outline_color="black", back_color=None, word_color=None, all_caps=False, outline=True, shadow=True, border_style=1):
+    """
+    Add subtitles to a video file.
+    
+    Args:
+        video_path: Path to the input video file
+        subtitle_path: Path to the subtitle file (SRT or ASS)
+        output_path: Path to the output video with subtitles
+        font_size: Font size for subtitles
+        font_name: Font name to use for subtitles
+        position: Position of subtitles (bottom, middle, top)
+        alignment: Text alignment (1=left, 2=center, 3=right)
+        margin_v: Vertical margin in pixels
+        subtitle_style: Style of subtitles (classic, modern)
+        line_color: Color of subtitle text
+        outline_color: Color of subtitle outline
+        back_color: Color of subtitle background
+        word_color: Color of highlighted words
+        all_caps: Convert subtitles to all caps
+        outline: Whether to add outline to text
+        shadow: Whether to add shadow to text
+        border_style: Border style (1=outline, 4=box)
+        
+    Returns:
+        Path to the output video
+    """
+    logger.info(f"Adding subtitles to video: {video_path}")
+    logger.info(f"Subtitle file: {subtitle_path}")
+    logger.info(f"Output path: {output_path}")
+    
+    # Check if subtitle file exists
+    if not os.path.exists(subtitle_path):
+        logger.error(f"Subtitle file not found: {subtitle_path}")
+        raise FileNotFoundError(f"Subtitle file not found: {subtitle_path}")
+            
+    # Get subtitle file extension
+    _, ext = os.path.splitext(subtitle_path)
+    ext = ext.lower()
+    
+    logger.info(f"Subtitle file extension: {ext}")
+    
+    # Check file sizes
+    video_size = os.path.getsize(video_path)
+    subtitle_size = os.path.getsize(subtitle_path)
+    logger.info(f"Video file size: {video_size} bytes")
+    logger.info(f"Subtitle file size: {subtitle_size} bytes")
+    
+    # Read first few lines of subtitle file to verify content
+    with open(subtitle_path, 'r', encoding='utf-8') as f:
+        subtitle_preview = f.read(1000)  # Read first 1000 chars
+    logger.info(f"Subtitle file preview: {subtitle_preview[:200]}...")  # Log first 200 chars
+    
+    # Determine the correct subtitle filter based on file extension
+    if ext == '.ass':
+        # For ASS files, use the ass filter with explicit file path
+        subtitle_path_fixed = subtitle_path.replace('\\', '/')
+        ffmpeg_cmd = [
+            "ffmpeg", "-y",
+            "-i", video_path,
+            "-vf", f"ass='{subtitle_path_fixed}'",
+            "-c:v", "libx264", "-crf", "23",
+            "-c:a", "copy",
+            "-max_muxing_queue_size", "9999",  # Prevent muxing queue errors
+            output_path
+        ]
+        logger.info("Using ASS subtitle filter")
+    elif ext == '.srt':
+        # For SRT files, use the subtitles filter with styling options
+        subtitle_path_fixed = subtitle_path.replace('\\', '/')
+        ffmpeg_cmd = [
+            "ffmpeg", "-y",
+            "-i", video_path,
+            "-vf", f"subtitles='{subtitle_path_fixed}':force_style='FontName={font_name},FontSize={font_size},BackColour=&H80000000,BorderStyle={border_style},Outline={1 if outline else 0},Shadow={1 if shadow else 0}'",
+            "-c:v", "libx264", "-crf", "23",
+            "-c:a", "copy",
+            "-max_muxing_queue_size", "9999",  # Prevent muxing queue errors
+            output_path
+        ]
+        logger.info("Using SRT subtitle filter with styling")
+    else:
+        logger.warning(f"Unknown subtitle format: {ext}, defaulting to subtitles filter")
+        ffmpeg_cmd = [
+            "ffmpeg", "-y",
+            "-i", video_path,
+            "-vf", f"subtitles='{subtitle_path}'",
+            "-c:v", "libx264", "-crf", "23",
+            "-c:a", "copy",
+            "-max_muxing_queue_size", "9999",  # Prevent muxing queue errors
+            output_path
+        ]
+    
+    logger.info(f"Running FFmpeg command: {' '.join(ffmpeg_cmd)}")
+    
+    # Run FFmpeg
+    process = subprocess.run(ffmpeg_cmd, check=True, capture_output=True, text=True)
+    
+    # Log FFmpeg output
+    if process.stdout:
+        logger.info(f"FFmpeg stdout: {process.stdout}")
+    if process.stderr:
+        logger.info(f"FFmpeg stderr: {process.stderr}")
+    
+    # Check if output file was created
+    if os.path.exists(output_path):
+        output_size = os.path.getsize(output_path)
+        logger.info(f"Output file created successfully: {output_path} ({output_size} bytes)")
+        return output_path
+    else:
+        logger.error(f"Output file was not created: {output_path}")
+        raise FileNotFoundError(f"Output file was not created: {output_path}")

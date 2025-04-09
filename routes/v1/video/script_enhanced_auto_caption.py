@@ -175,6 +175,10 @@ def script_enhanced_auto_caption():
         bold = data.get("bold", True)  # Default to bold text for better readability
         outline = data.get("outline", True)  # Default to outline for better contrast
         shadow = data.get("shadow", True)  # Default to shadow for better readability
+        border_style = data.get("border_style", 1)  # Default to outline style (1)
+        
+        # Log the styling parameters for debugging
+        logger.info(f"Position: {position}, Outline: {outline}, Shadow: {shadow}, Border Style: {border_style}")
         
         # Validate URLs for template variables that might not have been resolved
         if video_url and (video_url.startswith("{{") or video_url.endswith("}}")):
@@ -256,6 +260,50 @@ def script_enhanced_auto_caption():
             # Default to modern style
             styling_params["subtitle_style"] = "modern"
             logger.info("No subtitle_style specified, defaulting to modern")
+        
+        # Special handling for position to ensure it's properly passed through
+        if "position" in styling_params:
+            logger.info(f"Found position in request: {styling_params['position']}")
+        elif "style" in settings_obj and "position" in settings_obj["style"]:
+            styling_params["position"] = settings_obj["style"]["position"]
+            logger.info(f"Found position in settings.style: {styling_params['position']}")
+        else:
+            # Default to bottom if not specified
+            styling_params["position"] = "bottom"
+            logger.info("No position specified, defaulting to bottom")
+            
+        # Special handling for outline to ensure it's properly passed through
+        if "outline" in styling_params:
+            logger.info(f"Found outline in request: {styling_params['outline']}")
+        elif "style" in settings_obj and "outline" in settings_obj["style"]:
+            styling_params["outline"] = settings_obj["style"]["outline"]
+            logger.info(f"Found outline in settings.style: {styling_params['outline']}")
+        else:
+            # Default to true if not specified
+            styling_params["outline"] = True
+            logger.info("No outline specified, defaulting to True")
+            
+        # Special handling for shadow to ensure it's properly passed through
+        if "shadow" in styling_params:
+            logger.info(f"Found shadow in request: {styling_params['shadow']}")
+        elif "style" in settings_obj and "shadow" in settings_obj["style"]:
+            styling_params["shadow"] = settings_obj["style"]["shadow"]
+            logger.info(f"Found shadow in settings.style: {styling_params['shadow']}")
+        else:
+            # Default to true if not specified
+            styling_params["shadow"] = True
+            logger.info("No shadow specified, defaulting to True")
+            
+        # Special handling for border_style to ensure it's properly passed through
+        if "border_style" in styling_params:
+            logger.info(f"Found border_style in request: {styling_params['border_style']}")
+        elif "style" in settings_obj and "border_style" in settings_obj["style"]:
+            styling_params["border_style"] = settings_obj["style"]["border_style"]
+            logger.info(f"Found border_style in settings.style: {styling_params['border_style']}")
+        else:
+            # Default to 1 (outline) if not specified
+            styling_params["border_style"] = 1
+            logger.info("No border_style specified, defaulting to 1 (outline)")
         
         # Log the extracted styling parameters
         logger.info(f"Extracted styling parameters: {styling_params}")
