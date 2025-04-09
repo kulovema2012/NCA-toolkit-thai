@@ -565,15 +565,16 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, font_nam
     if subtitle_ext == '.ass':
         logger.debug("Using ASS subtitle format with FFmpeg")
         # For ASS subtitles, use the subtitle filter
+        subtitle_path_fixed = subtitle_path.replace('\\', '/')
         ffmpeg_cmd = [
             "ffmpeg", "-y",
             "-i", video_path,
-            "-vf", f"ass='{subtitle_path.replace('\\', '/')}'",
+            "-vf", f"ass='{subtitle_path_fixed}'",
             "-c:v", "libx264", "-crf", "18",
             "-c:a", "copy",
             output_path
         ]
-        logger.debug(f"Using ASS filter: ass='{subtitle_path.replace('\\', '/')}'")
+        logger.debug(f"Using ASS filter: ass='{subtitle_path_fixed}'")
     else:
         logger.debug("Using SRT subtitle format with FFmpeg")
         # For SRT subtitles, use the subtitles filter with styling
@@ -615,7 +616,8 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, font_nam
             logger.debug(f"Converted outline_color from #{outline_color} to {outline_color}")
         
         # Prepare subtitle filter
-        subtitle_filter = f"subtitles='{subtitle_path.replace('\\', '/')}'"
+        subtitle_path_fixed = subtitle_path.replace('\\', '/')
+        subtitle_filter = f"subtitles='{subtitle_path_fixed}'"
         subtitle_filter += f":force_style='FontName={font_name},FontSize={font_size}"
         
         if line_color:
@@ -1352,31 +1354,46 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path, font_size=24,
         # Determine the correct subtitle filter based on file extension
         if ext == '.ass':
             # For ASS files, use the ass filter with explicit file path
-            subtitle_filter = f"ass='{subtitle_path}'"
+            subtitle_path_fixed = subtitle_path.replace('\\', '/')
+            ffmpeg_cmd = [
+                "ffmpeg", "-y",
+                "-i", video_path,
+                "-vf", f"ass='{subtitle_path_fixed}'",
+                "-c:v", "libx264", "-crf", "23",
+                "-c:a", "copy",
+                "-max_muxing_queue_size", "9999",  # Prevent muxing queue errors
+                output_path
+            ]
             logger.info("Using ASS subtitle filter")
         elif ext == '.srt':
             # For SRT files, use the subtitles filter with styling options
-            subtitle_filter = f"subtitles='{subtitle_path}':force_style='FontName={font_name},FontSize={font_size},BackColour=&H80000000,BorderStyle=4,Outline=1,Shadow=0'"
+            subtitle_path_fixed = subtitle_path.replace('\\', '/')
+            ffmpeg_cmd = [
+                "ffmpeg", "-y",
+                "-i", video_path,
+                "-vf", f"subtitles='{subtitle_path_fixed}':force_style='FontName={font_name},FontSize={font_size},BackColour=&H80000000,BorderStyle=4,Outline=1,Shadow=0'",
+                "-c:v", "libx264", "-crf", "23",
+                "-c:a", "copy",
+                "-max_muxing_queue_size", "9999",  # Prevent muxing queue errors
+                output_path
+            ]
             logger.info("Using SRT subtitle filter with styling")
         else:
             logger.warning(f"Unknown subtitle format: {ext}, defaulting to subtitles filter")
-            subtitle_filter = f"subtitles='{subtitle_path}'"
+            ffmpeg_cmd = [
+                "ffmpeg", "-y",
+                "-i", video_path,
+                "-vf", f"subtitles='{subtitle_path}'",
+                "-c:v", "libx264", "-crf", "23",
+                "-c:a", "copy",
+                "-max_muxing_queue_size", "9999",  # Prevent muxing queue errors
+                output_path
+            ]
         
-        # Build FFmpeg command with improved options
-        cmd = [
-            "ffmpeg", "-y",
-            "-i", video_path,
-            "-vf", subtitle_filter,
-            "-c:v", "libx264", "-crf", "23",
-            "-c:a", "copy",
-            "-max_muxing_queue_size", "9999",  # Prevent muxing queue errors
-            output_path
-        ]
-        
-        logger.info(f"Running FFmpeg command: {' '.join(cmd)}")
+        logger.info(f"Running FFmpeg command: {' '.join(ffmpeg_cmd)}")
         
         # Run FFmpeg
-        process = subprocess.run(cmd, check=True, capture_output=True, text=True)
+        process = subprocess.run(ffmpeg_cmd, check=True, capture_output=True, text=True)
         
         # Log FFmpeg output
         if process.stdout:
