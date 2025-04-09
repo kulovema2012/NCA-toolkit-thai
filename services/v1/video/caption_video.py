@@ -567,6 +567,35 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, font_nam
         logger.debug("Using ASS subtitle format with FFmpeg")
         # For ASS subtitles, use the subtitle filter
         subtitle_path_fixed = subtitle_path.replace('\\', '/')
+        
+        # Check if custom x,y coordinates are provided
+        if x is not None and y is not None:
+            logger.info(f"Using custom coordinates for ASS subtitles: x={x}, y={y}")
+            # Create a temporary copy of the ASS file with modified coordinates
+            temp_ass_path = subtitle_path_fixed + ".temp.ass"
+            try:
+                with open(subtitle_path_fixed, 'r', encoding='utf-8') as f_in:
+                    content = f_in.read()
+                
+                # Replace any existing \pos tags or add our own
+                if "\\pos(" in content:
+                    logger.debug("Found existing \\pos tag, replacing with custom coordinates")
+                    content = re.sub(r'\\pos\([^)]+\)', f"\\pos({x},{y})", content)
+                else:
+                    logger.debug("No existing \\pos tag found, adding custom coordinates to dialogue lines")
+                    # Add \pos tag to each dialogue line
+                    content = re.sub(r'(Dialogue:[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,)', 
+                                    f'\\1{{\\pos({x},{y})}}', content)
+                
+                with open(temp_ass_path, 'w', encoding='utf-8') as f_out:
+                    f_out.write(content)
+                
+                logger.info(f"Created temporary ASS file with custom coordinates: {temp_ass_path}")
+                subtitle_path_fixed = temp_ass_path
+            except Exception as e:
+                logger.error(f"Error modifying ASS file with custom coordinates: {str(e)}")
+                # Continue with original file if modification fails
+        
         ffmpeg_cmd = [
             "ffmpeg", "-y",
             "-i", video_path,
@@ -614,7 +643,7 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, font_nam
         
         if outline_color.startswith('#'):
             outline_color = outline_color.lstrip('#')
-            logger.debug(f"Converted outline_color from #{outline_color} to {outline_color}")
+            logger.debug(f"Converted outline_color from #{outline_color} to {line_color}")
         
         # Prepare subtitle filter
         subtitle_path_fixed = subtitle_path.replace('\\', '/')

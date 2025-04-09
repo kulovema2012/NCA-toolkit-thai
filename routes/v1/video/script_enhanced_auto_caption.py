@@ -681,6 +681,26 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
             "font_name": font_name
         }
         
+        # Add positioning parameters
+        if "position" in settings_obj:
+            add_subtitles_params["position"] = settings_obj["position"]
+            logger.info(f"Job {job_id}: position: {settings_obj['position']}")
+            
+        # Add custom x,y coordinates if provided
+        if "x" in settings_obj and "y" in settings_obj:
+            add_subtitles_params["x"] = settings_obj["x"]
+            add_subtitles_params["y"] = settings_obj["y"]
+            logger.info(f"Job {job_id}: Using custom coordinates - x: {settings_obj['x']}, y: {settings_obj['y']}")
+            
+        # Add other styling parameters
+        for param in ["margin_v", "subtitle_style", "line_color", "outline_color", 
+                      "back_color", "all_caps", "alignment", "bold", "italic", 
+                      "underline", "strikeout", "shadow", "outline", "border_style", 
+                      "outline_size"]:
+            if param in settings_obj:
+                add_subtitles_params[param] = settings_obj[param]
+                logger.info(f"Job {job_id}: {param}: {settings_obj[param]}")
+        
         # Log the parameters we're passing to add_subtitles_to_video
         logger.info(f"Job {job_id}: Calling add_subtitles_to_video with parameters:")
         for key, value in add_subtitles_params.items():
