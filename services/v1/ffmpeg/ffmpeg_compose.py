@@ -1,9 +1,15 @@
 import os
 import subprocess
 import json
+import logging
+import uuid
 from services.file_management import download_file
 
-STORAGE_PATH = "/tmp/"
+# Set up logger
+logger = logging.getLogger(__name__)
+
+# Define storage path without trailing slash
+STORAGE_PATH = "/tmp"
 
 def get_extension_from_format(format_name):
     # Mapping of common format names to file extensions
@@ -79,6 +85,12 @@ def get_metadata(filename, metadata_requests, job_id):
 def process_ffmpeg_compose(data, job_id):
     output_filenames = []
     
+    logger.info(f"Job {job_id}: Starting FFmpeg compose process")
+    logger.info(f"Job {job_id}: Using storage path: {STORAGE_PATH}")
+    
+    # Create temp directory if it doesn't exist
+    os.makedirs(STORAGE_PATH, exist_ok=True)
+    
     # Build FFmpeg command
     command = ["ffmpeg"]
     
@@ -89,18 +101,44 @@ def process_ffmpeg_compose(data, job_id):
             command.append(str(option["argument"]))
     
     # Add inputs
-    for input_data in data["inputs"]:
+    input_paths = []
+    for i, input_data in enumerate(data["inputs"]):
+        logger.info(f"Job {job_id}: Processing input {i+1}/{len(data['inputs'])}: {input_data['file_url']}")
+        
         if "options" in input_data:
             for option in input_data["options"]:
                 command.append(option["option"])
                 if "argument" in option and option["argument"] is not None:
                     command.append(str(option["argument"]))
-        input_path = download_file(input_data["file_url"], STORAGE_PATH)
-        command.extend(["-i", input_path])
+        
+        # Generate a unique filename for the downloaded file
+        file_ext = os.path.splitext(os.path.basename(input_data["file_url"]))[1]
+        if not file_ext:
+            file_ext = ".mp4"  # Default extension if none is found
+        
+        unique_filename = f"{job_id}_input_{i}{file_ext}"
+        input_file_path = os.path.join(STORAGE_PATH, unique_filename)
+        
+        logger.info(f"Job {job_id}: Downloading input file to {input_file_path}")
+        try:
+            # Download the file to the specific path
+            download_file(input_data["file_url"], input_file_path)
+            logger.info(f"Job {job_id}: Successfully downloaded input file to {input_file_path}")
+            
+            # Verify the file exists
+            if not os.path.exists(input_file_path):
+                raise FileNotFoundError(f"Downloaded file not found at {input_file_path}")
+            
+            input_paths.append(input_file_path)
+            command.extend(["-i", input_file_path])
+        except Exception as e:
+            logger.error(f"Job {job_id}: Error downloading input file: {str(e)}")
+            raise
     
     # Add filters
     if data.get("filters"):
         filter_complex = ";".join(filter_obj["filter"] for filter_obj in data["filters"])
+        logger.info(f"Job {job_id}: Using filter_complex: {filter_complex}")
         command.extend(["-filter_complex", filter_complex])
     
     # Add outputs
@@ -113,6 +151,7 @@ def process_ffmpeg_compose(data, job_id):
         
         extension = get_extension_from_format(format_name) if format_name else 'mp4'
         output_filename = os.path.join(STORAGE_PATH, f"{job_id}_output_{i}.{extension}")
+        logger.info(f"Job {job_id}: Setting output {i+1} to {output_filename}")
         output_filenames.append(output_filename)
         
         for option in output["options"]:
@@ -122,21 +161,32 @@ def process_ffmpeg_compose(data, job_id):
         command.append(output_filename)
     
     # Execute FFmpeg command
+    logger.info(f"Job {job_id}: Executing FFmpeg command: {' '.join(command)}")
     try:
-        subprocess.run(command, check=True, capture_output=True, text=True)
+        result = subprocess.run(command, check=True, capture_output=True, text=True)
+        logger.info(f"Job {job_id}: FFmpeg command completed successfully")
+        logger.debug(f"Job {job_id}: FFmpeg stdout: {result.stdout}")
     except subprocess.CalledProcessError as e:
+        logger.error(f"Job {job_id}: FFmpeg command failed: {e.stderr}")
         raise Exception(f"FFmpeg command failed: {e.stderr}")
     
     # Clean up input files
-    for input_data in data["inputs"]:
-        input_path = os.path.join(STORAGE_PATH, os.path.basename(input_data["file_url"]))
+    logger.info(f"Job {job_id}: Cleaning up input files")
+    for input_path in input_paths:
         if os.path.exists(input_path):
-            os.remove(input_path)
+            try:
+                os.remove(input_path)
+                logger.info(f"Job {job_id}: Removed input file: {input_path}")
+            except Exception as e:
+                logger.warning(f"Job {job_id}: Failed to remove input file {input_path}: {str(e)}")
     
     # Get metadata if requested
     metadata = []
     if data.get("metadata"):
-        for output_filename in output_filenames:
+        logger.info(f"Job {job_id}: Collecting metadata for outputs")
+        for i, output_filename in enumerate(output_filenames):
+            logger.info(f"Job {job_id}: Getting metadata for output {i+1}: {output_filename}")
             metadata.append(get_metadata(output_filename, data["metadata"], job_id))
     
+    logger.info(f"Job {job_id}: FFmpeg compose process completed successfully")
     return output_filenames, metadata
