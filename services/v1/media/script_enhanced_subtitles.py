@@ -620,6 +620,13 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 text = "{\\an5\\pos(" + str(pos_x) + "," + str(pos_y) + ")}" + text
                 dialogue_line = f"Dialogue: 0,{start_time_ass},{end_time_ass},Default,,0,0,0,,{text}\n"
                 logger.debug(f"Generated dialogue line with custom positioning at x={pos_x}, y={pos_y}")
+            elif position.lower() == "top":
+                # For top position, use \an8 tag (top-center) and explicit positioning
+                # Calculate top position with margin (50px from top for 1080p video)
+                top_margin = margin_v if margin_v is not None else 50
+                text = "{\\an8\\pos(960," + str(top_margin) + ")}" + text
+                dialogue_line = f"Dialogue: 0,{start_time_ass},{end_time_ass},Default,,0,0,0,,{text}\n"
+                logger.debug(f"Generated dialogue line for top position with explicit positioning")
             elif position.lower() == "middle":
                 # For middle position, set MarginV to 0 in the dialogue line to ensure it's centered
                 # Use the \pos tag to force vertical positioning in the middle
@@ -628,8 +635,12 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 dialogue_line = f"Dialogue: 0,{start_time_ass},{end_time_ass},Default,,0,0,0,,{text}\n"
                 logger.debug(f"Generated dialogue line for middle position with explicit positioning")
             else:
-                dialogue_line = f"Dialogue: 0,{start_time_ass},{end_time_ass},Default,,0,0,{margin_v},,{text}\n"
-                logger.debug(f"Generated dialogue line with margin_v={margin_v}")
+                # For bottom position, use \an2 tag (bottom-center) and explicit positioning
+                # Calculate bottom position with margin (1080 - margin_v for 1080p video)
+                bottom_margin = 1080 - (margin_v if margin_v is not None else 50)
+                text = "{\\an2\\pos(960," + str(bottom_margin) + ")}" + text
+                dialogue_line = f"Dialogue: 0,{start_time_ass},{end_time_ass},Default,,0,0,0,,{text}\n"
+                logger.debug(f"Generated dialogue line for bottom position with explicit positioning")
             ass_content += dialogue_line
         
         # Write the ASS file
