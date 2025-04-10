@@ -10,6 +10,7 @@ import traceback
 import shutil
 import uuid
 import sys
+import re
 
 from services.v1.media.transcribe import transcribe_with_whisper
 from services.v1.media.script_enhanced_subtitles import enhance_subtitles_from_segments
@@ -686,40 +687,58 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
             add_subtitles_params["position"] = settings_obj["position"]
             logger.info(f"Job {job_id}: position: {settings_obj['position']}")
             
-        # Add custom x,y coordinates if provided
-        if "x" in settings_obj and "y" in settings_obj:
-            add_subtitles_params["x"] = settings_obj["x"]
-            add_subtitles_params["y"] = settings_obj["y"]
-            logger.info(f"Job {job_id}: Using custom coordinates - x: {settings_obj['x']}, y: {settings_obj['y']}")
+        # Extract custom positioning parameters before passing to add_subtitles_to_video
+        custom_x = None
+        custom_y = None
+        if "x" in add_subtitles_params:
+            custom_x = add_subtitles_params.pop("x")
+            logger.info(f"Job {job_id}: Extracted custom x coordinate: {custom_x}")
+        if "y" in add_subtitles_params:
+            custom_y = add_subtitles_params.pop("y")
+            logger.info(f"Job {job_id}: Extracted custom y coordinate: {custom_y}")
             
-        # Add other styling parameters
-        for param in ["margin_v", "subtitle_style", "line_color", "outline_color", 
-                      "back_color", "all_caps", "alignment", "bold", "italic", 
-                      "underline", "strikeout", "shadow", "outline", "border_style", 
-                      "outline_size"]:
-            if param in settings_obj:
-                add_subtitles_params[param] = settings_obj[param]
-                logger.info(f"Job {job_id}: {param}: {settings_obj[param]}")
-        
-        # Log the parameters we're passing to add_subtitles_to_video
-        logger.info(f"Job {job_id}: Calling add_subtitles_to_video with parameters:")
+        # Log the final parameters
         for key, value in add_subtitles_params.items():
             logger.info(f"Job {job_id}: {key}: {value}")
         
-        # Call add_subtitles_to_video with all parameters
+        # Call add_subtitles_to_video with filtered parameters
         from services.v1.video.caption_video import add_subtitles_to_video
         caption_result = add_subtitles_to_video(**add_subtitles_params)
         
-        # Check if caption_result is None (error occurred in add_subtitles_to_video)
-        if caption_result is None:
-            error_message = f"Failed to add subtitles to video. Check logs for details."
-            logger.error(f"Job {job_id}: {error_message}")
-            raise ValueError(error_message)
-        
-        # Read the enhanced SRT content
-        with open(srt_path, 'r', encoding='utf-8') as f:
-            enhanced_srt_content = f.read()
-        
+        # If we have custom coordinates and the caption was successful, modify the subtitle file
+        if caption_result and custom_x is not None and custom_y is not None:
+            logger.info(f"Job {job_id}: Applying custom coordinates (x={custom_x}, y={custom_y}) to subtitle file")
+            try:
+                # Check if the output is an ASS file
+                if caption_result.lower().endswith('.ass'):
+                    # Modify the ASS file to add custom positioning
+                    with open(caption_result, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    
+                    # Add positioning tags to dialogue lines
+                    if "Dialogue:" in content:
+                        # Replace any existing \pos tags or add our own
+                        if "\\pos(" in content:
+                            logger.debug("Found existing \\pos tag, replacing with custom coordinates")
+                            content = re.sub(r'\\pos\([^)]+\)', f"\\pos({custom_x},{custom_y})", content)
+                        else:
+                            logger.debug("No existing \\pos tag found, adding custom coordinates to dialogue lines")
+                            # Add \pos tag to each dialogue line
+                            content = re.sub(r'(Dialogue:[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,)', 
+                                           f'\\1{{\\an5\\pos({custom_x},{custom_y})}}', content)
+                        
+                        # Write the modified content back
+                        with open(caption_result, 'w', encoding='utf-8') as f:
+                            f.write(content)
+                        
+                        logger.info(f"Job {job_id}: Successfully applied custom coordinates to subtitle file")
+                    else:
+                        logger.warning(f"Job {job_id}: No dialogue lines found in ASS file, couldn't apply custom coordinates")
+                else:
+                    logger.warning(f"Job {job_id}: Output is not an ASS file, couldn't apply custom coordinates")
+            except Exception as e:
+                logger.error(f"Job {job_id}: Error applying custom coordinates: {str(e)}")
+                # Continue with the original file if modification fails
         # Calculate total processing time
         end_time = time.time()
         total_time = end_time - process_start_time
