@@ -16,6 +16,7 @@ from pathlib import Path
 import srt  # For parsing SRT files
 from datetime import timedelta
 import unicodedata
+import glob
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -320,97 +321,37 @@ def convert_srt_to_ass_for_thai(srt_path, font_name=None, font_size=24, primary_
 
 def get_available_thai_font():
     """
-    Check for available Thai fonts on the system and return the best one.
+    Find an available Thai font on the system.
+    
+    Returns:
+        Name of an available Thai font, or a default font if none found
     """
-    # List of Thai fonts to check in order of preference
-    # Prioritize fonts that are likely to be available in cloud environments
-    thai_fonts = [
-        "Sarabun", "Garuda", "Loma", "Kinnari", "Norasi", 
-        "Waree", "TH Sarabun New", "Tahoma", "Arial Unicode MS", "DejaVu Sans"
+    logger.info("Searching for available Thai fonts")
+    
+    # Use our new find_thai_fonts function
+    thai_fonts = find_thai_fonts()
+    
+    if thai_fonts:
+        # Use the first found Thai font
+        font_path = thai_fonts[0]
+        logger.info(f"Using Thai font: {font_path}")
+        return font_path
+    
+    # If no fonts found, try common font names that might be available
+    common_thai_fonts = [
+        "Sarabun", 
+        "THSarabun", 
+        "TH Sarabun New", 
+        "Noto Sans Thai", 
+        "Garuda",
+        "Norasi",
+        "Waree",
+        "Loma",
+        "Kinnari"
     ]
     
-    # Check if we're on Windows (for local development)
-    import platform
-    if platform.system() == "Windows":
-        try:
-            import ctypes
-            from ctypes import wintypes
-            
-            # Use Windows API to get font directory
-            CSIDL_FONTS = 0x0014
-            SHGFP_TYPE_CURRENT = 0
-            buf = ctypes.create_unicode_buffer(wintypes.MAX_PATH)
-            ctypes.windll.shell32.SHGetFolderPathW(0, CSIDL_FONTS, 0, SHGFP_TYPE_CURRENT, buf)
-            fonts_dir = buf.value
-            
-            # Check if font files exist
-            import os
-            for font in thai_fonts:
-                # Check common extensions
-                for ext in ['.ttf', '.ttc', '.otf']:
-                    if os.path.exists(os.path.join(fonts_dir, f"{font}{ext}")):
-                        logger.info(f"Found Thai font on Windows: {font}")
-                        return font
-            
-            # If we can't find any specific Thai font, check if Tahoma exists
-            # Tahoma has good Thai support and is common on Windows
-            if os.path.exists(os.path.join(fonts_dir, "tahoma.ttf")):
-                logger.info("Using Tahoma as fallback Thai font")
-                return "Tahoma"
-                
-            # If all else fails, use Arial which should be on all Windows systems
-            if os.path.exists(os.path.join(fonts_dir, "arial.ttf")):
-                logger.info("Using Arial as fallback Thai font")
-                return "Arial"
-        except Exception as e:
-            logger.warning(f"Error checking for Thai fonts on Windows: {str(e)}")
-    else:
-        # For Linux/Cloud environments
-        # First try fc-list (standard on most Linux distributions)
-        try:
-            import subprocess
-            result = subprocess.run(["fc-list"], capture_output=True, text=True)
-            fc_output = result.stdout.lower()
-            
-            for font in thai_fonts:
-                if font.lower() in fc_output:
-                    logger.info(f"Found Thai font via fc-list: {font}")
-                    return font
-                    
-            # If no specific Thai font is found, look for common Linux fonts with Thai support
-            for fallback in ["DejaVu Sans", "Noto Sans", "FreeSans"]:
-                if fallback.lower() in fc_output:
-                    logger.info(f"Using fallback font with Thai support: {fallback}")
-                    return fallback
-        except Exception as e:
-            logger.warning(f"Could not check for Thai fonts using fc-list: {str(e)}")
-            
-        # As a second approach, check common font directories on Linux
-        try:
-            import os
-            linux_font_dirs = [
-                "/usr/share/fonts/",
-                "/usr/local/share/fonts/",
-                "/usr/share/fonts/truetype/",
-                "/usr/share/fonts/opentype/"
-            ]
-            
-            for font_dir in linux_font_dirs:
-                if os.path.exists(font_dir):
-                    # Check for Thai fonts
-                    for root, dirs, files in os.walk(font_dir):
-                        for font in thai_fonts:
-                            for file in files:
-                                if font.lower() in file.lower() and file.lower().endswith(('.ttf', '.otf', '.ttc')):
-                                    logger.info(f"Found Thai font in {root}: {file}")
-                                    return font
-        except Exception as e:
-            logger.warning(f"Error checking font directories: {str(e)}")
-    
-    # Default to Sarabun which should be installed in your cloud environment
-    # based on your memory about available Thai fonts
-    logger.info("Using default Thai font: Sarabun")
-    return "Sarabun"
+    logger.info(f"No Thai font files found. Trying common Thai font names: {common_thai_fonts}")
+    return common_thai_fonts[0]  # Return the first common Thai font name
 
 # Remove the cache_result decorator to ensure parameter changes are recognized
 def add_subtitles_to_video(video_path, subtitle_path, output_path=None, font_name="Arial", font_size=24, 
@@ -1584,3 +1525,69 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path, font_size=24,
     else:
         logger.error(f"Output file was not created: {output_path}")
         raise FileNotFoundError(f"Output file was not created: {output_path}")
+
+def find_thai_fonts():
+    """
+    Find available Thai fonts on the system.
+    
+    Returns:
+        List of paths to Thai font files
+    """
+    # Common paths for Thai fonts
+    possible_paths = [
+        # Thai-specific fonts
+        "/usr/share/fonts/truetype/thai-tlwg/Sarabun*.ttf",
+        "/usr/share/fonts/truetype/tlwg/Sarabun*.ttf",
+        "/usr/share/fonts/TTF/Sarabun*.ttf",
+        "/usr/share/fonts/thai-tlwg/Sarabun*.ttf",
+        # General font directories
+        "/usr/share/fonts/truetype/*/Sarabun*.ttf",
+        "/usr/share/fonts/*/Sarabun*.ttf",
+        # Noto Sans Thai (alternative)
+        "/usr/share/fonts/truetype/noto/NotoSansThai*.ttf",
+        "/usr/share/fonts/noto-cjk/NotoSansThai*.ttf",
+        # Fallback to any Thai font
+        "/usr/share/fonts/**/Thai*.ttf",
+        "/usr/share/fonts/**/*Thai*.ttf"
+    ]
+    
+    found_fonts = []
+    
+    # Try to find Thai fonts using glob
+    for path_pattern in possible_paths:
+        try:
+            matches = glob.glob(path_pattern, recursive=True)
+            found_fonts.extend(matches)
+        except Exception as e:
+            logger.warning(f"Error checking font path {path_pattern}: {str(e)}")
+    
+    # If glob doesn't work, try using find command
+    if not found_fonts:
+        try:
+            result = subprocess.run(
+                ["find", "/usr/share/fonts", "-name", "*Thai*", "-o", "-name", "*Sarabun*", "-type", "f"],
+                capture_output=True, text=True, check=False
+            )
+            if result.stdout.strip():
+                found_fonts.extend(result.stdout.strip().split("\n"))
+        except Exception as e:
+            logger.warning(f"Error using find command to locate Thai fonts: {str(e)}")
+    
+    # Last resort - check if we can list any fonts with fc-list
+    if not found_fonts:
+        try:
+            result = subprocess.run(["fc-list"], capture_output=True, text=True, check=False)
+            for line in result.stdout.split("\n"):
+                if "Thai" in line or "Sarabun" in line:
+                    font_path = line.split(":")[0]
+                    found_fonts.append(font_path)
+        except Exception as e:
+            logger.warning(f"Error using fc-list to locate Thai fonts: {str(e)}")
+    
+    # Log the results
+    if found_fonts:
+        logger.info(f"Found {len(found_fonts)} Thai fonts: {found_fonts}")
+    else:
+        logger.warning("No Thai fonts found on the system")
+    
+    return found_fonts

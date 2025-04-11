@@ -349,6 +349,52 @@ def align_standard_text(script_text: str, subtitles: List[srt.Subtitle]) -> List
     
     return aligned_subtitles
 
+def process_subtitle_line_for_thai(line, max_width=None, max_words_per_line=None, position="bottom", x=None, y=None):
+    """
+    Process a subtitle line for Thai language, handling word segmentation and line breaks.
+    
+    Args:
+        line: The subtitle line to process
+        max_width: Maximum width of the subtitle line
+        max_words_per_line: Maximum number of words per line
+        position: Position of the subtitle (top, middle, bottom)
+        x: Custom x position
+        y: Custom y position
+        
+    Returns:
+        Processed subtitle line
+    """
+    logger.info(f"Processing Thai subtitle line: {line}")
+    logger.info(f"Parameters: max_width={max_width}, max_words_per_line={max_words_per_line}, position={position}, x={x}, y={y}")
+    
+    # If custom x and y are provided, add position override
+    if x is not None and y is not None:
+        logger.info(f"Using custom position: x={x}, y={y}")
+        # Add ASS position tag
+        line = f"{{\\pos({x},{y})}}{line}"
+    else:
+        # Apply standard positioning based on position parameter
+        if position == "top":
+            logger.info("Using top position")
+            # For top position, use alignment 8 (top center)
+            line = f"{{\\an8}}{line}"
+        elif position == "middle":
+            logger.info("Using middle position")
+            # For middle position, use alignment 5 (middle center)
+            line = f"{{\\an5}}{line}"
+        else:  # bottom (default)
+            logger.info("Using bottom position")
+            # For bottom position, use alignment 2 (bottom center)
+            line = f"{{\\an2}}{line}"
+    
+    # Add a semi-transparent background for better readability
+    # Format: {\\bord3\\shad0\\3c&H000000&\\1a&H00&\\3a&H60&\\4a&H80&}
+    # This creates a border, adds shadow, and sets alpha channels for visibility
+    line = f"{{\\bord3\\shad1\\3c&H000000&\\1a&H00&\\3a&H60&\\4a&H80&}}{line}"
+    
+    logger.info(f"Processed Thai subtitle line: {line}")
+    return line
+
 def enhance_subtitles_from_segments(segments, script_text, language="en", settings=None):
     """
     Enhance subtitles from transcription segments and script text.
@@ -557,62 +603,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             # Process Thai text with proper line breaks
             if language.lower() == "th":
                 logger.debug(f"Processing Thai text: '{text}' (length: {len(text)})")
-                from pythainlp.tokenize import word_tokenize
-                words = word_tokenize(text, engine="newmm")
-                logger.debug(f"Tokenized into {len(words)} Thai words")
-                
-                # Apply line breaks
-                lines = []
-                current_line = ""
-                word_count = 0
-                
-                for word in words:
-                    if (len(current_line) + len(word) > max_width) or (word_count >= max_words_per_line):
-                        logger.debug(f"Line break after: '{current_line}' (length: {len(current_line)}, words: {word_count})")
-                        lines.append(current_line)
-                        current_line = word
-                        word_count = 1
-                    else:
-                        current_line += word
-                        word_count += 1
-                
-                if current_line:
-                    logger.debug(f"Adding final line: '{current_line}' (length: {len(current_line)}, words: {word_count})")
-                    lines.append(current_line)
-                
-                # Join lines with ASS line break
-                text = "\\N".join(lines)
-                logger.debug(f"Final text with {len(lines)} lines: '{text}'")
-                
-                # Add styling tags for better visibility
-                style_tags = "{"
-                
-                # Apply bold if requested
-                if bold:
-                    style_tags += "\\b1"
-                else:
-                    style_tags += "\\b0"
-                
-                # Apply outline if requested
-                if outline:
-                    style_tags += f"\\bord{outline_size}"
-                else:
-                    style_tags += "\\bord0"
-                
-                # Apply shadow if requested
-                if shadow:
-                    style_tags += "\\shad2"
-                else:
-                    style_tags += "\\shad0"
-                
-                # Close the style tag
-                style_tags += "}"
-                
-                # Apply the styling to the text
-                text = style_tags + text
-                logger.debug(f"Added custom ASS styling tags: {style_tags}")
-            else:
-                logger.debug(f"Using non-Thai text as is: '{text}'")
+                text = process_subtitle_line_for_thai(text, max_width=max_width, max_words_per_line=max_words_per_line, position=position, x=pos_x, y=pos_y)
+                logger.debug(f"Processed Thai text: '{text}'")
             
             # Add the dialogue line
             if custom_position:

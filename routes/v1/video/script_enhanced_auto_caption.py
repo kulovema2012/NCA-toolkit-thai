@@ -11,6 +11,7 @@ import shutil
 import uuid
 import sys
 import re
+import subprocess
 
 from services.v1.media.transcribe import transcribe_with_whisper
 from services.v1.media.script_enhanced_subtitles import enhance_subtitles_from_segments
@@ -119,7 +120,13 @@ def script_enhanced_auto_caption():
         "start_time": "Start time for transcription (in seconds)",
         "subtitle_delay": "Subtitle delay in seconds",
         "max_chars_per_line": "Maximum characters per subtitle line",
-        "audio_url": "Optional URL to an audio file to use for transcription instead of extracting from video"
+        "audio_url": "Optional URL to an audio file to use for transcription instead of extracting from video",
+        "padding": "Padding value (in pixels)",
+        "padding_color": "Color of the padding",
+        "padding_top": "Top padding value (in pixels)",
+        "padding_bottom": "Bottom padding value (in pixels)",
+        "padding_left": "Left padding value (in pixels)",
+        "padding_right": "Right padding value (in pixels)"
     }
     """
     try:
@@ -739,6 +746,41 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
             except Exception as e:
                 logger.error(f"Job {job_id}: Error applying custom coordinates: {str(e)}")
                 # Continue with the original file if modification fails
+        
+        # Apply padding if requested
+        if "padding" in settings_obj or "padding_top" in settings_obj or "padding_bottom" in settings_obj or "padding_left" in settings_obj or "padding_right" in settings_obj:
+            logger.info(f"Job {job_id}: Applying padding to video")
+            
+            # If padding is specified as a single value, use it for all sides
+            if "padding" in settings_obj:
+                padding_top = padding_bottom = padding_left = padding_right = int(settings_obj["padding"])
+            else:
+                padding_top = int(settings_obj.get("padding_top", 0))
+                padding_bottom = int(settings_obj.get("padding_bottom", 0))
+                padding_left = int(settings_obj.get("padding_left", 0))
+                padding_right = int(settings_obj.get("padding_right", 0))
+            
+            # Create padded video
+            padded_video_path = apply_padding_to_video(
+                video_path=downloaded_video_path, 
+                padding_top=padding_top, 
+                padding_bottom=padding_bottom,
+                padding_left=padding_left,
+                padding_right=padding_right,
+                padding_color=settings_obj.get("padding_color", "white"),
+                job_id=job_id
+            )
+            
+            logger.info(f"Job {job_id}: Created padded video at {padded_video_path}")
+            
+            # Use the padded video for subtitling
+            downloaded_video_path = padded_video_path
+            
+            # Adjust y position for top padding if needed
+            if padding_top > 0 and custom_y is not None:
+                custom_y = int(custom_y) + padding_top
+                logger.info(f"Job {job_id}: Adjusted y position to {custom_y} due to top padding")
+        
         # Calculate total processing time
         end_time = time.time()
         total_time = end_time - process_start_time
@@ -872,3 +914,67 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
             logger.info(f"Job {job_id}: Cleaned up temporary files")
         except Exception as cleanup_error:
             logger.warning(f"Job {job_id}: Error during cleanup: {str(cleanup_error)}")
+
+def apply_padding_to_video(video_path, padding_top=0, padding_bottom=0, padding_left=0, padding_right=0, padding_color="white", job_id=None):
+    """
+    Apply padding to a video.
+    
+    Args:
+        video_path: Path to the video file
+        padding_top: Top padding in pixels
+        padding_bottom: Bottom padding in pixels
+        padding_left: Left padding in pixels
+        padding_right: Right padding in pixels
+        padding_color: Color of the padding
+        job_id: Unique identifier for the job
+        
+    Returns:
+        Path to the padded video
+    """
+    logger.info(f"Job {job_id}: Applying padding to video: {video_path}")
+    logger.info(f"Job {job_id}: Padding values: Top={padding_top}, Bottom={padding_bottom}, Left={padding_left}, Right={padding_right}")
+    logger.info(f"Job {job_id}: Padding color: {padding_color}")
+    
+    # Create output path
+    output_path = f"/tmp/{uuid.uuid4()}_padded.mp4"
+    logger.info(f"Job {job_id}: Output path: {output_path}")
+    
+    # Get video dimensions
+    video_info = get_video_info(video_path)
+    width = int(video_info.get("width", 1280))
+    height = int(video_info.get("height", 720))
+    logger.info(f"Job {job_id}: Original video dimensions: {width}x{height}")
+    
+    # Calculate new dimensions
+    new_width = width + padding_left + padding_right
+    new_height = height + padding_top + padding_bottom
+    logger.info(f"Job {job_id}: New video dimensions: {new_width}x{new_height}")
+    
+    # Create FFmpeg command
+    ffmpeg_cmd = [
+        "ffmpeg", "-y",
+        "-i", video_path,
+        "-vf", f"pad={new_width}:{new_height}:{padding_left}:{padding_top}:color={padding_color}",
+        "-c:v", "libx264", "-crf", "18",
+        "-c:a", "copy",
+        output_path
+    ]
+    
+    # Execute FFmpeg command
+    logger.info(f"Job {job_id}: Executing FFmpeg command: {' '.join(ffmpeg_cmd)}")
+    try:
+        result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True, check=True)
+        logger.info(f"Job {job_id}: FFmpeg command executed successfully")
+        logger.debug(f"Job {job_id}: FFmpeg stdout: {result.stdout}")
+        
+        # Check if output file exists
+        if os.path.exists(output_path):
+            logger.info(f"Job {job_id}: Padded video created successfully: {output_path}")
+            return output_path
+        else:
+            logger.error(f"Job {job_id}: Padded video was not created: {output_path}")
+            raise FileNotFoundError(f"Padded video was not created: {output_path}")
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Job {job_id}: Error executing FFmpeg command: {e}")
+        logger.error(f"Job {job_id}: FFmpeg stderr: {e.stderr}")
+        raise Exception(f"Error applying padding to video: {e.stderr}")
