@@ -1,6 +1,6 @@
 # Video Padding Styles API
 
-This API allows you to apply advanced padding styles to videos, including gradients, patterns, and custom title text.
+This API allows you to apply advanced padding styles to videos, including gradients, patterns, and custom title text. It features intelligent Thai text handling that automatically splits text at appropriate word boundaries.
 
 ## Endpoint
 
@@ -25,13 +25,31 @@ POST /api/v1/video/padding-styles
 | pattern_size | integer | No | 40 | Size of pattern elements in pixels |
 | pattern_color1 | string | No | "white" | First color for pattern |
 | pattern_color2 | string | No | "black" | Second color for pattern |
-| title_text | string | No | "" | Text to display in the padding area |
+| title_text | string | No | "" | Text to display in the padding area (supports Thai text with automatic line breaking) |
 | font_name | string | No | "Sarabun" | Font name for title text |
 | font_size | integer | No | 50 | Font size for title text |
 | font_color | string | No | "black" | Font color for title text |
 | border_color | string | No | "#ffc8dd" | Border/shadow color for title text |
 | text_style | string | No | "outline" | Text style: "simple", "outline", "shadow", "glow", "3d" |
 | text_position | string | No | "center" | Text position: "center", "left", "right", "top", "bottom" |
+
+## Thai Text Handling
+
+This API features intelligent Thai text handling that automatically splits text at appropriate word boundaries. When you provide Thai text in the `title_text` parameter, the system will:
+
+1. Detect that the text is Thai
+2. Use PyThaiNLP (if available) for accurate word segmentation
+3. Split the text into appropriate lines based on word boundaries
+4. Position the lines properly in the padding area
+
+This ensures that Thai words are not broken incorrectly across lines. For example, text like "การปฏิวัติของสตรีในสงครามโลกครั้งที่สอง" will be properly split into lines like:
+
+```
+การปฏิวัติของสตรีในสง
+ครามโลกครั้งที่สอง
+```
+
+You can also manually control line breaks by including newline characters (`\n`) in your title text.
 
 ## Example Request
 
@@ -40,7 +58,7 @@ POST /api/v1/video/padding-styles
   "video_url": "https://storage.googleapis.com/nca-toolkit-buckettt/example.mp4",
   "padding_style": "radial",
   "padding_top": 200,
-  "title_text": "การปฏิวัติของสตรีในสงครามโลกครั้งที่สอง",
+  "title_text": "เส้นทางสายไทย\nพลังเชื่อมโยงวัฒนธรรม",
   "font_name": "Sarabun",
   "font_size": 45,
   "font_color": "white",
@@ -65,14 +83,6 @@ POST /api/v1/video/padding-styles
   }
 }
 ```
-
-## Thai Text Line Breaking
-
-When using Thai text in the `title_text` parameter, the system will attempt to break lines at appropriate word boundaries. However, for best results with Thai text, consider the following:
-
-1. Use shorter titles when possible
-2. If you need to control line breaks manually, you can insert newline characters (`\n`) in the title text
-3. For longer Thai texts, the system will try to break at common Thai prefixes/suffixes
 
 ## Available Padding Styles
 

@@ -1,12 +1,219 @@
 import os
 import json
 import logging
+import re
 from flask import Blueprint, request, jsonify
 from services.v1.ffmpeg.ffmpeg_compose import process_ffmpeg_compose
 from services.v1.video.caption_video import add_padding_to_video
 from services.file_management import get_temp_file_path
 
+try:
+    import pythainlp
+    from pythainlp.tokenize import word_tokenize
+    PYTHAINLP_AVAILABLE = True
+except ImportError:
+    PYTHAINLP_AVAILABLE = False
+    logging.warning("PyThaiNLP not available. Falling back to basic Thai text splitting.")
+
 v1_video_padding_styles_bp = Blueprint('v1_video_padding_styles', __name__)
+
+def is_thai(text):
+    """Check if text contains Thai characters"""
+    thai_pattern = re.compile(r'[\u0E00-\u0E7F]')
+    thai_chars = thai_pattern.findall(text)
+    return len(thai_chars) > len(text) * 0.5
+
+def split_thai_text(text, num_lines):
+    """
+    Split Thai text into lines with better word boundaries
+    
+    Args:
+        text (str): Thai text to split
+        num_lines (int): Number of lines to split into
+        
+    Returns:
+        list: Array of text lines
+    """
+    # Try to use PyThaiNLP for better word segmentation if available
+    if PYTHAINLP_AVAILABLE:
+        try:
+            # Tokenize the text into words
+            words = word_tokenize(text, engine='newmm')
+            
+            # Calculate words per line
+            words_per_line = max(1, len(words) // num_lines)
+            
+            # Split into lines
+            lines = []
+            for i in range(0, len(words), words_per_line):
+                line = ''.join(words[i:min(i + words_per_line, len(words))])
+                lines.append(line)
+            
+            return lines
+        except Exception as e:
+            logging.warning(f"Error using PyThaiNLP for word segmentation: {str(e)}")
+            # Fall back to basic splitting if PyThaiNLP fails
+    
+    # Basic Thai text splitting using common prefixes/suffixes
+    thai_prefixes = ['การ', 'ความ', 'ใน', 'และ', 'ที่', 'ของ', 'จาก', 'โดย', 'แห่ง', 'เมื่อ']
+    thai_suffixes = ['ๆ', 'ไป', 'มา', 'แล้ว', 'ด้วย', 'อยู่', 'ได้', 'ให้']
+    
+    # Try to find natural break points
+    potential_break_points = []
+    
+    # Check for common break points (after certain words)
+    for i in range(2, len(text) - 2):
+        # Check if this position follows a common suffix or precedes a common prefix
+        for prefix in thai_prefixes:
+            if text[i:i+len(prefix)] == prefix:
+                potential_break_points.append(i)
+                break
+        
+        for suffix in thai_suffixes:
+            if text[i-len(suffix):i] == suffix:
+                potential_break_points.append(i)
+                break
+        
+        # Also consider breaks after Thai punctuation
+        if text[i-1] in ',.!?;:':
+            potential_break_points.append(i)
+    
+    # If we found enough potential break points, use them
+    if len(potential_break_points) >= num_lines - 1:
+        # Sort break points by position
+        potential_break_points.sort()
+        
+        # Select evenly distributed break points
+        selected_break_points = []
+        step = len(potential_break_points) / (num_lines - 1)
+        
+        for i in range(num_lines - 1):
+            index = min(int(i * step), len(potential_break_points) - 1)
+            selected_break_points.append(potential_break_points[index])
+        
+        # Sort the selected break points
+        selected_break_points.sort()
+        
+        # Split text at the selected break points
+        lines = []
+        start_pos = 0
+        
+        for break_point in selected_break_points:
+            lines.append(text[start_pos:break_point])
+            start_pos = break_point
+        
+        # Add the last segment
+        lines.append(text[start_pos:])
+        
+        return lines
+    
+    # Fallback: if we couldn't find good break points, split by character count
+    chars_per_line = len(text) // num_lines
+    lines = []
+    
+    for i in range(0, len(text), chars_per_line):
+        end_pos = min(i + chars_per_line, len(text))
+        
+        # Try to avoid breaking in the middle of a word if possible
+        look_ahead_range = min(10, len(text) - end_pos)
+        for j in range(look_ahead_range):
+            if any(text[end_pos + j:].startswith(prefix) for prefix in thai_prefixes):
+                end_pos = end_pos + j
+                break
+        
+        # Look behind a bit to see if we can find a better break point
+        look_behind_range = min(10, end_pos - i)
+        for j in range(1, look_behind_range + 1):
+            if any(text[end_pos - j - len(suffix):end_pos - j] == suffix for suffix in thai_suffixes):
+                end_pos = end_pos - j
+                break
+        
+        lines.append(text[i:end_pos])
+        i = end_pos - chars_per_line  # Adjust i since we modified end_pos
+    
+    return lines
+
+def smart_text_layout(text, max_width, max_height, font_size):
+    """
+    Create smart text layout with proper line breaks
+    
+    Args:
+        text (str): Text to format
+        max_width (int): Maximum width in pixels
+        max_height (int): Maximum height in pixels
+        font_size (int): Font size
+        
+    Returns:
+        list: Array of lines
+    """
+    # Handle existing line breaks
+    if '\n' in text:
+        return text.split('\n')
+    
+    # Calculate optimal parameters
+    char_width = 0.6 if is_thai(text) else 0.55  # Thai characters need slightly more width
+    estimated_chars_per_line = int(max_width * 0.8 / (font_size * char_width))
+    max_possible_lines = int(max_height / (font_size * 1.2))
+    estimated_lines_needed = (len(text) + estimated_chars_per_line - 1) // estimated_chars_per_line
+    target_lines = min(max(2, estimated_lines_needed), max_possible_lines)
+    
+    # Check for title:subtitle format
+    if ':' in text and target_lines >= 2:
+        parts = text.split(':', 1)
+        title = parts[0]
+        subtitle = parts[1].strip() if len(parts) > 1 else ""
+        
+        if not subtitle:
+            return [title]
+        
+        result = [title]
+        
+        if len(subtitle) > estimated_chars_per_line:
+            if is_thai(subtitle):
+                result.extend(split_thai_text(subtitle, target_lines - 1))
+            else:
+                # For non-Thai, split by words
+                words = subtitle.split()
+                words_per_line = (len(words) + target_lines - 2) // (target_lines - 1)
+                
+                for i in range(0, len(words), words_per_line):
+                    result.append(' '.join(words[i:i + words_per_line]))
+        else:
+            result.append(subtitle)
+        
+        return result
+    
+    # For Thai text, use special handling
+    if is_thai(text):
+        return split_thai_text(text, target_lines)
+    
+    # For non-Thai text, split by words
+    words = text.split()
+    
+    # If too few words for requested lines, reduce lines
+    actual_lines = min(target_lines, (len(words) + 1) // 2)
+    
+    # Try to find natural break points for 2-line splits
+    if actual_lines == 2:
+        break_words = ['of', 'and', 'or', 'but', 'for', 'nor', 'so', 'yet', 'with', 'by', 'to', 'in']
+        start_search = len(words) // 3
+        end_search = (2 * len(words)) // 3
+        
+        for i in range(start_search, end_search):
+            if words[i].lower() in break_words:
+                return [
+                    ' '.join(words[:i+1]),
+                    ' '.join(words[i+1:])
+                ]
+    
+    # If no natural breaks found or more than 2 lines needed, split evenly
+    words_per_line = (len(words) + actual_lines - 1) // actual_lines
+    lines = []
+    
+    for i in range(0, len(words), words_per_line):
+        lines.append(' '.join(words[i:min(i + words_per_line, len(words))]))
+    
+    return lines
 
 @v1_video_padding_styles_bp.route('/api/v1/video/padding-styles', methods=['POST'])
 def process_video_padding_styles():
@@ -97,37 +304,52 @@ def process_video_padding_styles():
         
         # Add title text if provided
         if title_text:
-            # Process title text for better line breaks
-            # This would be handled by the JavaScript in the frontend
-            # For simplicity, we'll just add the text as-is here
+            # Process title text for better line breaks using server-side function
+            lines = smart_text_layout(title_text, input_width, padding_top, font_size)
             
-            # Determine text style
-            if text_style == 'shadow':
-                text_effect = f":fontcolor={font_color}:shadowcolor={border_color}:shadowx=2:shadowy=2"
-            elif text_style == 'glow':
-                text_effect = f":fontcolor={font_color}:bordercolor={border_color}:borderw=3:box=1:boxcolor={border_color}@0.5:boxborderw=1"
-            elif text_style == '3d':
-                # For 3D effect, we need to add multiple drawtext filters
-                position_x = "(w-text_w)/2" if text_position == 'center' else "20" if text_position == 'left' else "w-text_w-20"
-                position_y = f"{padding_top/2-font_size}"
-                
-                filter_complex += f",drawtext=text='{title_text}':" + \
-                    f"fontfile=/usr/share/fonts/truetype/thai-tlwg/{font_name}.ttf:" + \
-                    f"fontsize={font_size}:fontcolor={border_color}:" + \
-                    f"x={position_x}+1:y={position_y}+1"
-                
-                text_effect = f":fontcolor={font_color}"
-            else:  # outline or simple
-                text_effect = f":fontcolor={font_color}:bordercolor={border_color}:borderw=2"
+            # Calculate line height and positioning
+            line_height = min(font_size * 1.3, padding_top / (len(lines) + 1))
+            border_w = max(1, int(font_size / 25))  # Scale border width with font size
+            
+            # Calculate total height and starting Y position
+            title_height = len(lines) * line_height
+            y_start = max(10, (padding_top - title_height) / 2)
+            
+            # Safety check - ensure text fits in padded area
+            if y_start + title_height > padding_top - 10:
+                font_size = int(font_size * 0.9)
+                border_w = max(1, int(font_size / 25))
+                line_height = min(font_size * 1.3, padding_top / (len(lines) + 1))
+                y_start = max(10, (padding_top - len(lines) * line_height) / 2)
             
             # Determine text position
             position_x = "(w-text_w)/2" if text_position == 'center' else "20" if text_position == 'left' else "w-text_w-20"
-            position_y = f"{padding_top/2-font_size}"
             
-            filter_complex += f",drawtext=text='{title_text}':" + \
-                f"fontfile=/usr/share/fonts/truetype/thai-tlwg/{font_name}.ttf:" + \
-                f"fontsize={font_size}{text_effect}:" + \
-                f"x={position_x}:y={position_y}"
+            # Add each line of text
+            for i, line in enumerate(lines):
+                # Escape single quotes for FFmpeg
+                escaped_line = line.replace("'", "'\\''")
+                
+                # Determine text style
+                if text_style == 'shadow':
+                    text_effect = f":fontcolor={font_color}:shadowcolor={border_color}:shadowx=2:shadowy=2"
+                elif text_style == 'glow':
+                    text_effect = f":fontcolor={font_color}:bordercolor={border_color}:borderw=3:box=1:boxcolor={border_color}@0.5:boxborderw=1"
+                elif text_style == '3d':
+                    # For 3D effect, we need to add multiple drawtext filters
+                    filter_complex += f",drawtext=text='{escaped_line}':" + \
+                        f"fontfile=/usr/share/fonts/truetype/thai-tlwg/{font_name}.ttf:" + \
+                        f"fontsize={font_size}:fontcolor={border_color}:" + \
+                        f"x={position_x}+1:y={y_start + i * line_height}+1"
+                    
+                    text_effect = f":fontcolor={font_color}"
+                else:  # outline or simple
+                    text_effect = f":fontcolor={font_color}:bordercolor={border_color}:borderw={border_w}"
+                
+                filter_complex += f",drawtext=text='{escaped_line}':" + \
+                    f"fontfile=/usr/share/fonts/truetype/thai-tlwg/{font_name}.ttf:" + \
+                    f"fontsize={font_size}{text_effect}:" + \
+                    f"x={position_x}:y={y_start + i * line_height}"
         
         # Prepare FFmpeg compose request
         ffmpeg_request = {
