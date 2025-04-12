@@ -5,6 +5,10 @@ import logging
 import uuid
 import glob
 from services.file_management import download_file
+from flask import Blueprint, request, jsonify
+
+# Create the blueprint
+v1_ffmpeg_compose_bp = Blueprint('v1_ffmpeg_compose', __name__)
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -274,3 +278,16 @@ def process_ffmpeg_compose(data, job_id):
     
     logger.info(f"Job {job_id}: FFmpeg compose process completed successfully")
     return output_filenames, metadata
+
+@v1_ffmpeg_compose_bp.route('/api/v1/ffmpeg/compose', methods=['POST'])
+def ffmpeg_compose():
+    """
+    Process FFmpeg compose requests with complex filters
+    """
+    try:
+        data = request.get_json()
+        result = process_ffmpeg_compose(data, str(uuid.uuid4()))
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"Error in ffmpeg compose: {str(e)}")
+        return jsonify({"error": str(e)}), 500
