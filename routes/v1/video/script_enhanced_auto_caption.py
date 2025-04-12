@@ -375,545 +375,246 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
     Returns:
         dict: Response with captioned video URL and metadata
     """
-    if not job_id:
-        job_id = str(uuid.uuid4())
-        
-    if not settings:
-        settings = {}
-        
-    logger.info(f"Job {job_id}: Starting script-enhanced auto-caption processing")
-    logger.info(f"Job {job_id}: Video URL: {video_url}")
-    logger.info(f"Job {job_id}: Script length: {len(script_text)} characters")
-    logger.info(f"Job {job_id}: Language: {language}")
+    start_time = time.time()
     
-    # Initialize settings if None
+    if job_id is None:
+        job_id = str(uuid.uuid4())
+    
+    logger.info(f"Job {job_id}: Starting script-enhanced auto-captioning process")
+    logger.info(f"Job {job_id}: Parameters - language: {language}, transcription_tool: {transcription_tool}")
+    logger.info(f"Job {job_id}: Script text length: {len(script_text)} characters")
+    
     if settings is None:
         settings = {}
     
-    # Create a settings object that combines passed parameters with the settings dict
-    settings_obj = settings.copy()
-    
-    # Add parameters to settings if not already present
-    if "min_start_time" not in settings_obj:
-        settings_obj["min_start_time"] = min_start_time
-    if "subtitle_delay" not in settings_obj:
-        settings_obj["subtitle_delay"] = subtitle_delay
-    if "max_chars_per_line" not in settings_obj:
-        settings_obj["max_chars_per_line"] = max_chars_per_line
-    
-    # Set default font for Thai language if not specified
-    if "font_name" not in settings_obj:
-        if language.lower() == "th":
-            settings_obj["font_name"] = "Sarabun"  # Default to Sarabun for Thai
-        else:
-            settings_obj["font_name"] = "Arial"  # Default to Arial for other languages
-    
-    # Set other default subtitle styling parameters if not specified
-    if "font_size" not in settings_obj:
-        settings_obj["font_size"] = 24  # Default to 24pt
-    if "bold" not in settings_obj:
-        settings_obj["bold"] = True  # Default to bold text for better readability
-    if "outline" not in settings_obj:
-        settings_obj["outline"] = True  # Default to outline for better contrast
-    if "shadow" not in settings_obj:
-        settings_obj["shadow"] = True  # Default to shadow for better readability
-    if "alignment" not in settings_obj:
-        settings_obj["alignment"] = "center"  # Default to center alignment
-    
-    # Get transcription tool from settings
-    transcription_tool = settings_obj.get("transcription_tool", transcription_tool)
-    allow_fallback = settings_obj.get("allow_fallback", False)  # New parameter to control fallback
-    start_time = float(settings_obj.get("start_time", 0))
-    subtitle_delay = float(settings_obj.get("subtitle_delay", 0))
-    max_chars_per_line = int(settings_obj.get("max_chars_per_line", 30))
-    logger.info(f"Using transcription tool: {transcription_tool}")
-    logger.info(f"Allow fallback: {allow_fallback}")
-    logger.info(f"Using subtitle delay: {subtitle_delay} seconds")
-    logger.info(f"Using max characters per line: {max_chars_per_line}")
-    
-    # Get start time if specified
-    logger.info(f"Using start time: {start_time} seconds")
-    
-    process_start_time = time.time()
-    
     # Create a temporary directory for processing
-    temp_dir = os.path.join(tempfile.gettempdir(), f"script_enhanced_auto_caption_{job_id}")
-    os.makedirs(temp_dir, exist_ok=True)
-    
+    temp_dir = tempfile.mkdtemp()
     logger.info(f"Job {job_id}: Created temporary directory: {temp_dir}")
     
     try:
         # Download the video
         logger.info(f"Job {job_id}: Downloading video from {video_url}")
-        downloaded_video_path = os.path.join(temp_dir, f"video_{job_id}.mp4")
-        download_file(video_url, downloaded_video_path)
-        logger.info(f"Job {job_id}: Video downloaded to {downloaded_video_path}")
+        video_path = download_file(video_url, os.path.join(temp_dir, "input_video.mp4"))
+        logger.info(f"Job {job_id}: Video downloaded to {video_path}")
         
-        # Try to import the Replicate Whisper module
-        try:
-            from services.v1.transcription.replicate_whisper import transcribe_with_replicate
-            replicate_available = True
-        except ImportError:
-            logger.warning("Replicate Whisper module not available")
-            replicate_available = False
+        # Check if we need to use a separate audio file for transcription
+        audio_path = None
+        if audio_url:
+            logger.info(f"Job {job_id}: Downloading separate audio file from {audio_url}")
+            audio_path = download_file(audio_url, os.path.join(temp_dir, "input_audio.mp3"))
+            logger.info(f"Job {job_id}: Audio downloaded to {audio_path}")
         
-        # Transcribe the video based on selected tool
-        transcription_tool_used = transcription_tool  # Default to the selected tool
-        try:
-            if transcription_tool == "replicate_whisper" and replicate_available:
-                try:
-                    # Extract audio URL if provided
-                    if audio_url:
-                        audio_url = audio_url
-                    else:
-                        # If no audio URL provided, use the video URL
-                        audio_url = video_url
-                    # Ensure the audio_url is a remote URL (not a local path)
-                    if not audio_url.startswith(('http://', 'https://')):
-                        logger.warning(f"Audio URL {audio_url} is not a remote URL. Replicate requires a remote URL.")
-                        # Fall back to using the video URL if it's remote
-                        if video_url.startswith(('http://', 'https://')):
-                            logger.info(f"Using video URL instead: {video_url}")
-                            audio_url = video_url
-                        else:
-                            error_msg = "Replicate requires a publicly accessible URL for audio. Please provide a public URL."
-                            logger.error(error_msg)
-                            raise ValueError(error_msg)
-                        
-                    # Use Replicate for transcription
-                    logger.info(f"Using Replicate Whisper for transcription with URL: {audio_url}")
-                    segments = transcribe_with_replicate(
-                        audio_url=audio_url,
-                        language=language,
-                        batch_size=settings_obj.get("batch_size", 64)
-                    )
-                    transcription_tool_used = "replicate_whisper"
-                    logger.info(f"Transcription completed with Replicate Whisper, got {len(segments)} segments")
-                except Exception as e:
-                    logger.error(f"Error in Replicate transcription: {str(e)}")
-                    
-                    # Only fall back if allowed
-                    if allow_fallback:
-                        logger.warning("Replicate transcription failed, trying OpenAI Whisper as fallback...")
-                        try:
-                            from services.v1.media.transcribe import transcribe_with_whisper
-                            segments = transcribe_with_whisper(
-                                video_path=downloaded_video_path,
-                                language=language
-                            )
-                            transcription_tool_used = "openai_whisper"
-                            logger.info(f"Fallback transcription completed with OpenAI Whisper, got {len(segments)} segments")
-                        except Exception as fallback_error:
-                            logger.error(f"Fallback transcription also failed: {str(fallback_error)}")
-                            raise ValueError(f"Transcription failed with Replicate: {str(e)}\nFallback also failed: {str(fallback_error)}")
-                    else:
-                        # If fallback is not allowed, raise the original error
-                        raise ValueError(f"Replicate transcription failed and fallback is disabled: {str(e)}")
-            else:
-                # Default to OpenAI Whisper
-                try:
-                    logger.info("Using OpenAI Whisper for transcription")
-                    from services.v1.media.transcribe import transcribe_with_whisper
-                    segments = transcribe_with_whisper(
-                        video_path=downloaded_video_path,
-                        language=language
-                    )
-                    transcription_tool_used = "openai_whisper"
-                    logger.info(f"Transcription completed with OpenAI Whisper, got {len(segments)} segments")
-                except Exception as e:
-                    logger.error(f"Error in OpenAI transcription: {str(e)}")
-                    
-                    # Only fall back if allowed
-                    if allow_fallback:
-                        logger.warning("OpenAI transcription failed, trying Replicate Whisper as fallback...")
-                        try:
-                            from services.v1.transcription.replicate_whisper import transcribe_with_replicate
-                            
-                            # Ensure we have a remote URL for Replicate
-                            if video_url.startswith(('http://', 'https://')):
-                                audio_url = video_url
-                                segments = transcribe_with_replicate(
-                                    audio_url=audio_url,
-                                    language=language,
-                                    batch_size=settings_obj.get("batch_size", 64)
-                                )
-                                transcription_tool_used = "replicate_whisper"
-                                logger.info(f"Fallback transcription completed with Replicate Whisper, got {len(segments)} segments")
-                            else:
-                                logger.error("Cannot fall back to Replicate: video URL is not a remote URL")
-                                raise ValueError("OpenAI transcription failed and cannot fall back to Replicate: video URL is not a remote URL")
-                        except Exception as fallback_error:
-                            logger.error(f"Fallback transcription also failed: {str(fallback_error)}")
-                            raise ValueError(f"Transcription failed with OpenAI: {str(e)}\nFallback also failed: {str(fallback_error)}")
-                    else:
-                        # If fallback is not allowed, raise the original error
-                        raise ValueError(f"OpenAI transcription failed and fallback is disabled: {str(e)}")
-        except Exception as e:
-            logger.error(f"Error in transcription: {str(e)}")
-            raise ValueError(f"Transcription error: {str(e)}")
+        # Apply padding if specified
+        padding = settings.get("padding", 0)
+        padding_top = settings.get("padding_top", padding)
+        padding_bottom = settings.get("padding_bottom", padding)
+        padding_left = settings.get("padding_left", padding)
+        padding_right = settings.get("padding_right", padding)
+        padding_color = settings.get("padding_color", "white")
         
-        # Adjust segment start times if needed
-        if start_time > 0:
-            logger.info(f"Adjusting segment start times by {start_time} seconds")
-            for segment in segments:
-                segment["start"] = segment["start"] + start_time
-                segment["end"] = segment["end"] + start_time
-        
-        # Ensure minimum duration for segments
-        min_duration = 1.0  # Minimum duration in seconds
-        for segment in segments:
-            if segment["end"] - segment["start"] < min_duration:
-                segment["end"] = segment["start"] + min_duration
-        
-        # Align script text with segments
-        logger.info(f"Job {job_id}: Aligning script with transcription segments")
-        
-        try:
-            # Use the enhanced subtitles function with the new signature
-            from services.v1.media.script_enhanced_subtitles import enhance_subtitles_from_segments
-            
-            # Get subtitle settings
-            subtitle_settings = {
-                "font_name": settings_obj.get("font_name", "Arial"),
-                "font_size": settings_obj.get("font_size", 24),
-                "max_width": settings_obj.get("max_width", 40),
-                "margin_v": settings_obj.get("margin_v", 30),  # Add margin_v parameter
-                "line_color": settings_obj.get("line_color", "#FFFFFF"),
-                "outline_color": settings_obj.get("outline_color", "#000000"),
-                "back_color": settings_obj.get("back_color", "&H80000000"),
-                "alignment": settings_obj.get("alignment", 2),
-                "max_words_per_line": settings_obj.get("max_words_per_line", 15),
-                "subtitle_style": settings_obj.get("subtitle_style", "modern")
-            }
-            
-            # Call the enhanced subtitles function with the new signature
-            srt_path, ass_path = enhance_subtitles_from_segments(
-                segments=segments,
-                script_text=script_text,
-                language=language,
-                settings=subtitle_settings
-            )
-            
-            logger.info(f"Generated subtitle files: SRT={srt_path}, ASS={ass_path}")
-            
-            # If Thai language and subtitle_delay is specified, create a new SRT file with the delay
-            if is_thai_text(script_text) and subtitle_delay > 0:
-                logger.info(f"Thai text detected, applying subtitle delay of {subtitle_delay} seconds")
-                delayed_srt_path = os.path.join(os.path.dirname(srt_path), f"delayed_{os.path.basename(srt_path)}")
-                
-                # Parse the original SRT file
-                with open(srt_path, 'r', encoding='utf-8') as f:
-                    srt_content = f.read()
-                
-                # Extract segments from SRT content
-                import re
-                pattern = r'(\d+)\n(\d{2}:\d{2}:\d{2},\d{3}) --> (\d{2}:\d{2}:\d{2},\d{3})\n((?:.+\n)+)'
-                matches = re.findall(pattern, srt_content, re.MULTILINE)
-                
-                segments_from_srt = []
-                for match in matches:
-                    index, start_time_str, end_time_str, text = match
-                    
-                    # Convert SRT time format to seconds
-                    def time_to_seconds(time_str):
-                        h, m, s = time_str.replace(',', '.').split(':')
-                        return int(h) * 3600 + int(m) * 60 + float(s)
-                    
-                    start_time = time_to_seconds(start_time_str)
-                    end_time = time_to_seconds(end_time_str)
-                    
-                    segments_from_srt.append({
-                        "start": start_time,
-                        "end": end_time,
-                        "text": text.strip()
-                    })
-                
-                # Create a new SRT file with the delay and improved text wrapping
-                delayed_srt_path = create_srt_file(
-                    path=delayed_srt_path,
-                    segments=segments_from_srt,
-                    delay_seconds=subtitle_delay,
-                    max_chars_per_line=max_chars_per_line
-                )
-                
-                logger.info(f"Created delayed SRT file with improved Thai text wrapping: {delayed_srt_path}")
-                
-                # Use the delayed SRT file for captioning
-                srt_path = delayed_srt_path
-                
-                # Convert the delayed SRT to ASS for better styling
-                from services.v1.video.caption_video import convert_srt_to_ass_for_thai
-                delayed_ass_path = delayed_srt_path.replace('.srt', '.ass')
-                convert_srt_to_ass_for_thai(
-                    srt_path=delayed_srt_path,
-                    font_name=subtitle_settings.get("font_name"),
-                    font_size=subtitle_settings.get("font_size"),
-                    max_words_per_line=max_chars_per_line
-                )
-                
-                if os.path.exists(delayed_ass_path):
-                    logger.info(f"Created delayed ASS file: {delayed_ass_path}")
-                    ass_path = delayed_ass_path
-            
-            # Use the ASS file for captioning
-            subtitle_path = ass_path
-        except Exception as e:
-            logger.error(f"Error in enhanced subtitles generation: {str(e)}")
-            raise ValueError(f"Enhanced subtitles generation error: {str(e)}")
-        
-        # Step 3: Add subtitles to video
-        logger.info(f"Job {job_id}: Adding subtitles to video")
-        
-        # Create the output path
-        output_path = os.path.join(temp_dir, f"captioned_{job_id}.mp4")
-        
-        # Prepare parameters for add_subtitles_to_video
-        logger.info(f"Job {job_id}: Calling add_subtitles_to_video with parameters:")
-        logger.info(f"Job {job_id}: video_path: {downloaded_video_path}")
-        logger.info(f"Job {job_id}: subtitle_path: {subtitle_path}")
-        logger.info(f"Job {job_id}: output_path: {output_path}")
-        
-        # Get font settings
-        font_name = settings_obj.get("font_name", "Arial")
-        font_size = settings_obj.get("font_size", 24)
-        
-        logger.info(f"Job {job_id}: font_name: {font_name}")
-        logger.info(f"Job {job_id}: font_size: {font_size}")
-        
-        # Only include the parameters that the function accepts
-        add_subtitles_params = {
-            "video_path": downloaded_video_path,
-            "subtitle_path": subtitle_path,
-            "output_path": output_path,
-            "font_size": font_size,
-            "font_name": font_name
-        }
-        
-        # Add positioning parameters
-        if "position" in settings_obj:
-            add_subtitles_params["position"] = settings_obj["position"]
-            logger.info(f"Job {job_id}: position: {settings_obj['position']}")
-            
-        # Extract custom positioning parameters before passing to add_subtitles_to_video
-        custom_x = None
-        custom_y = None
-        if "x" in add_subtitles_params:
-            custom_x = add_subtitles_params.pop("x")
-            logger.info(f"Job {job_id}: Extracted custom x coordinate: {custom_x}")
-        if "y" in add_subtitles_params:
-            custom_y = add_subtitles_params.pop("y")
-            logger.info(f"Job {job_id}: Extracted custom y coordinate: {custom_y}")
-            
-        # Log the final parameters
-        for key, value in add_subtitles_params.items():
-            logger.info(f"Job {job_id}: {key}: {value}")
-        
-        # Call add_subtitles_to_video with filtered parameters
-        from services.v1.video.caption_video import add_subtitles_to_video
-        caption_result = add_subtitles_to_video(**add_subtitles_params)
-        
-        # If we have custom coordinates and the caption was successful, modify the subtitle file
-        if caption_result and custom_x is not None and custom_y is not None:
-            logger.info(f"Job {job_id}: Applying custom coordinates (x={custom_x}, y={custom_y}) to subtitle file")
-            try:
-                # Check if the output is an ASS file
-                if caption_result.lower().endswith('.ass'):
-                    # Modify the ASS file to add custom positioning
-                    with open(caption_result, 'r', encoding='utf-8') as f:
-                        content = f.read()
-                    
-                    # Add positioning tags to dialogue lines
-                    if "Dialogue:" in content:
-                        # Replace any existing \pos tags or add our own
-                        if "\\pos(" in content:
-                            logger.debug("Found existing \\pos tag, replacing with custom coordinates")
-                            content = re.sub(r'\\pos\([^)]+\)', f"\\pos({custom_x},{custom_y})", content)
-                        else:
-                            logger.debug("No existing \\pos tag found, adding custom coordinates to dialogue lines")
-                            # Add \pos tag to each dialogue line
-                            content = re.sub(r'(Dialogue:[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,)', 
-                                           f'\\1{{\\an5\\pos({custom_x},{custom_y})}}', content)
-                        
-                        # Write the modified content back
-                        with open(caption_result, 'w', encoding='utf-8') as f:
-                            f.write(content)
-                        
-                        logger.info(f"Job {job_id}: Successfully applied custom coordinates to subtitle file")
-                    else:
-                        logger.warning(f"Job {job_id}: No dialogue lines found in ASS file, couldn't apply custom coordinates")
-                else:
-                    logger.warning(f"Job {job_id}: Output is not an ASS file, couldn't apply custom coordinates")
-            except Exception as e:
-                logger.error(f"Job {job_id}: Error applying custom coordinates: {str(e)}")
-                # Continue with the original file if modification fails
-        
-        # Apply padding if requested
-        if "padding" in settings_obj or "padding_top" in settings_obj or "padding_bottom" in settings_obj or "padding_left" in settings_obj or "padding_right" in settings_obj:
-            logger.info(f"Job {job_id}: Applying padding to video")
-            
-            # If padding is specified as a single value, use it for all sides
-            if "padding" in settings_obj:
-                padding_top = padding_bottom = padding_left = padding_right = int(settings_obj["padding"])
-            else:
-                padding_top = int(settings_obj.get("padding_top", 0))
-                padding_bottom = int(settings_obj.get("padding_bottom", 0))
-                padding_left = int(settings_obj.get("padding_left", 0))
-                padding_right = int(settings_obj.get("padding_right", 0))
-            
-            # Create padded video
+        if padding_top > 0 or padding_bottom > 0 or padding_left > 0 or padding_right > 0:
+            logger.info(f"Job {job_id}: Applying padding - top: {padding_top}, bottom: {padding_bottom}, left: {padding_left}, right: {padding_right}, color: {padding_color}")
             padded_video_path = apply_padding_to_video(
-                video_path=downloaded_video_path, 
-                padding_top=padding_top, 
+                video_path,
+                padding_top=padding_top,
                 padding_bottom=padding_bottom,
                 padding_left=padding_left,
                 padding_right=padding_right,
-                padding_color=settings_obj.get("padding_color", "white"),
+                padding_color=padding_color,
                 job_id=job_id
             )
             
-            logger.info(f"Job {job_id}: Created padded video at {padded_video_path}")
-            
-            # Use the padded video for subtitling
-            downloaded_video_path = padded_video_path
-            
-            # Adjust y position for top padding if needed
-            if padding_top > 0 and custom_y is not None:
-                custom_y = int(custom_y) + padding_top
-                logger.info(f"Job {job_id}: Adjusted y position to {custom_y} due to top padding")
+            if padded_video_path:
+                logger.info(f"Job {job_id}: Padding applied successfully, new video path: {padded_video_path}")
+                video_path = padded_video_path
+            else:
+                logger.warning(f"Job {job_id}: Failed to apply padding, using original video")
         
-        # Calculate total processing time
-        end_time = time.time()
-        total_time = end_time - process_start_time
-        run_time = total_time
+        # Transcribe the video or audio
+        logger.info(f"Job {job_id}: Starting transcription with {transcription_tool}")
         
-        # Prepare response format that matches the original version
+        transcription_start_time = time.time()
+        segments = None
+        
+        if transcription_tool == "replicate_whisper":
+            logger.info(f"Job {job_id}: Using Replicate Whisper for transcription")
+            source_path = audio_path if audio_path else video_path
+            segments = transcribe_with_replicate(source_path, language=language)
+        else:  # Default to OpenAI Whisper
+            logger.info(f"Job {job_id}: Using OpenAI Whisper for transcription")
+            source_path = audio_path if audio_path else video_path
+            segments = transcribe_with_whisper(source_path, language=language)
+        
+        transcription_time = time.time() - transcription_start_time
+        logger.info(f"Job {job_id}: Transcription completed in {transcription_time:.2f} seconds")
+        
+        if not segments:
+            logger.error(f"Job {job_id}: Transcription failed, no segments returned")
+            return {"error": "Transcription failed"}
+        
+        logger.info(f"Job {job_id}: Transcription returned {len(segments)} segments")
+        
+        # Enhance subtitles with script
+        logger.info(f"Job {job_id}: Enhancing subtitles with script text")
+        enhancement_start_time = time.time()
+        
+        # Apply subtitle delay if specified
+        if subtitle_delay > 0:
+            logger.info(f"Job {job_id}: Applying subtitle delay of {subtitle_delay} seconds")
+            for segment in segments:
+                segment["start"] += subtitle_delay
+                segment["end"] += subtitle_delay
+        
+        # Apply minimum start time if specified
+        if min_start_time > 0:
+            logger.info(f"Job {job_id}: Applying minimum start time of {min_start_time} seconds")
+            segments = [s for s in segments if s["end"] >= min_start_time]
+            for segment in segments:
+                if segment["start"] < min_start_time:
+                    segment["start"] = min_start_time
+        
+        enhanced_segments = enhance_subtitles_from_segments(segments, script_text, language)
+        
+        if not enhanced_segments:
+            logger.error(f"Job {job_id}: Script alignment failed, no enhanced segments returned")
+            return {"error": "Script alignment failed"}
+        
+        enhancement_time = time.time() - enhancement_start_time
+        logger.info(f"Job {job_id}: Subtitle enhancement completed in {enhancement_time:.2f} seconds")
+        logger.info(f"Job {job_id}: Enhanced subtitles have {len(enhanced_segments)} segments")
+        
+        # Create SRT file
+        srt_path = os.path.join(temp_dir, "subtitles.srt")
+        logger.info(f"Job {job_id}: Creating SRT file at {srt_path}")
+        
+        is_thai = is_thai_text(script_text) or language == "th"
+        logger.info(f"Job {job_id}: Text detected as Thai: {is_thai}")
+        
+        create_srt_file(enhanced_segments, srt_path, max_chars_per_line=max_chars_per_line, is_thai=is_thai)
+        logger.info(f"Job {job_id}: SRT file created successfully")
+        
+        # Add subtitles to video
+        logger.info(f"Job {job_id}: Adding subtitles to video")
+        
+        # Extract subtitle styling parameters from settings
+        font_name = settings.get("font_name", "Sarabun" if is_thai else "Arial")
+        font_size = settings.get("font_size", 24)
+        position = settings.get("position", "bottom")
+        margin_v = settings.get("margin_v", 30)
+        subtitle_style = settings.get("subtitle_style", "modern")
+        max_width = settings.get("max_width", None)
+        line_color = settings.get("line_color", "white")
+        word_color = settings.get("word_color", None)
+        outline_color = settings.get("outline_color", "black")
+        all_caps = settings.get("all_caps", False)
+        x = settings.get("x", None)
+        y = settings.get("y", None)
+        alignment = settings.get("alignment", "center")
+        bold = settings.get("bold", False)
+        italic = settings.get("italic", False)
+        underline = settings.get("underline", False)
+        strikeout = settings.get("strikeout", False)
+        shadow = settings.get("shadow", None)
+        outline = settings.get("outline", None)
+        back_color = settings.get("back_color", None)
+        margin_l = settings.get("margin_l", None)
+        margin_r = settings.get("margin_r", None)
+        encoding = settings.get("encoding", None)
+        
+        # Adjust Y position if padding_top is applied
+        custom_y = y
+        if padding_top > 0 and custom_y is not None:
+            custom_y = int(custom_y) + padding_top
+            logger.info(f"Job {job_id}: Adjusted Y position to {custom_y} due to top padding")
+        
+        logger.info(f"Job {job_id}: Subtitle styling - font: {font_name}, size: {font_size}, position: {position}, style: {subtitle_style}")
+        
+        # Set output path
+        if output_path is None:
+            output_path = os.path.join(temp_dir, "output_video.mp4")
+        
+        logger.info(f"Job {job_id}: Adding subtitles to video with output path: {output_path}")
+        
+        captioning_start_time = time.time()
+        output_video_path = add_subtitles_to_video(
+            video_path,
+            srt_path,
+            output_path=output_path,
+            font_name=font_name,
+            font_size=font_size,
+            position=position,
+            margin_v=margin_v,
+            subtitle_style=subtitle_style,
+            max_width=max_width,
+            line_color=line_color,
+            word_color=word_color,
+            outline_color=outline_color,
+            all_caps=all_caps,
+            max_words_per_line=max_chars_per_line,
+            x=x,
+            y=custom_y,
+            alignment=alignment,
+            bold=bold,
+            italic=italic,
+            underline=underline,
+            strikeout=strikeout,
+            shadow=shadow,
+            outline=outline,
+            back_color=back_color,
+            margin_l=margin_l,
+            margin_r=margin_r,
+            encoding=encoding,
+            job_id=job_id
+        )
+        
+        captioning_time = time.time() - captioning_start_time
+        
+        if not output_video_path or not os.path.exists(output_video_path):
+            logger.error(f"Job {job_id}: Failed to add subtitles to video")
+            return {"error": "Failed to add subtitles to video"}
+        
+        logger.info(f"Job {job_id}: Subtitles added successfully in {captioning_time:.2f} seconds")
+        
+        # Get file size
+        file_size = os.path.getsize(output_video_path)
+        
+        # Prepare response
+        total_time = time.time() - start_time
+        
         response = {
-            "code": 200,
-            "id": "script-enhanced-auto-caption",
-            "job_id": job_id,
-            "message": "success",
-            "response": [
-                {
-                    "file_url": ""
-                }
-            ],
-            "run_time": round(run_time, 3),
-            "total_time": round(total_time, 3),
-            "transcription_tool": transcription_tool_used
+            "file_url": output_video_path if response_type == "local" else f"/static/temp/{os.path.basename(output_video_path)}",
+            "local_path": output_video_path,
+            "processing_time": {
+                "total": round(total_time, 2),
+                "transcription": round(transcription_time, 2),
+                "enhancement": round(enhancement_time, 2),
+                "captioning": round(captioning_time, 2)
+            },
+            "file_size": file_size,
+            "segments_count": len(enhanced_segments)
         }
         
-        # Handle the caption_result which is a string path, not a dictionary
-        if isinstance(caption_result, str) and os.path.exists(caption_result):
-            # Always upload the captioned video to cloud storage
-            try:
-                from services.cloud_storage import upload_to_cloud_storage
-                # Use a UUID for the filename to avoid collisions
-                import uuid
-                file_uuid = str(uuid.uuid4())
-                cloud_path = f"captioned_videos/{file_uuid}_{os.path.basename(caption_result)}"
-                cloud_url = upload_to_cloud_storage(caption_result, cloud_path)
-                
-                # Log the upload success
-                logger.info(f"Job {job_id}: Successfully uploaded video to cloud storage: {cloud_url}")
-                
-                # Update the response with the cloud URL
-                response["response"][0]["file_url"] = cloud_url
-            except Exception as e:
-                logger.error(f"Job {job_id}: Failed to upload captioned video to cloud storage: {str(e)}")
-                logger.error(traceback.format_exc())
-                # Fall back to local file path if upload fails
-                response["response"][0]["file_url"] = f"file://{caption_result}"
-        elif isinstance(caption_result, dict) and "file_url" in caption_result:
-            # Handle if caption_result is already a dictionary with file_url
-            response["response"][0]["file_url"] = caption_result["file_url"]
+        if include_srt:
+            response["srt_path"] = srt_path
         
-        # Add SRT URL to the response only if explicitly requested
-        if srt_path and include_srt:
-            try:
-                from services.cloud_storage import upload_to_cloud_storage
-                # Use a UUID for the filename to avoid collisions
-                import uuid
-                file_uuid = str(uuid.uuid4())
-                srt_cloud_path = f"subtitles/{file_uuid}_{os.path.basename(srt_path)}"
-                srt_cloud_url = upload_to_cloud_storage(srt_path, srt_cloud_path)
-                logger.info(f"Job {job_id}: Successfully uploaded SRT to cloud storage: {srt_cloud_url}")
-                response["srt_url"] = srt_cloud_url
-            except Exception as e:
-                logger.error(f"Job {job_id}: Failed to upload SRT to cloud storage: {str(e)}")
-                logger.error(traceback.format_exc())
-                # Fall back to local file path if upload fails
-                response["srt_url"] = f"file://{srt_path}"
-        
-        # Add optional metadata if available
-        if "metadata" in locals() and 'caption_result' in locals() and isinstance(caption_result, dict) and "metadata" in caption_result:
-            metadata = caption_result["metadata"]
-            if isinstance(metadata, dict):
-                # Extract specific metadata fields to match original format
-                if "format" in metadata:
-                    format_data = metadata["format"]
-                    if isinstance(format_data, dict):
-                        if "duration" in format_data:
-                            try:
-                                response["duration"] = float(format_data["duration"])
-                            except (ValueError, TypeError):
-                                response["duration"] = 0.0
-                        if "bit_rate" in format_data:
-                            try:
-                                response["bitrate"] = int(format_data["bit_rate"])
-                            except (ValueError, TypeError):
-                                response["bitrate"] = 0
-                        if "size" in format_data:
-                            try:
-                                response["filesize"] = int(format_data["size"])
-                            except (ValueError, TypeError):
-                                response["filesize"] = 0
-                
-                # Add thumbnail URL if available
-                if "thumbnail_url" in metadata:
-                    response["thumbnail"] = str(metadata["thumbnail_url"])
-        
-        # Send webhook if provided
-        if webhook_url:
-            try:
-                send_webhook(webhook_url, response)
-            except Exception as webhook_error:
-                logger.error(f"Job {job_id}: Failed to send webhook: {str(webhook_error)}")
+        logger.info(f"Job {job_id}: Script-enhanced auto-captioning completed successfully in {total_time:.2f} seconds")
+        logger.info(f"Job {job_id}: Output video size: {file_size} bytes")
         
         return response
         
     except Exception as e:
-        logger.error(f"Error in script-enhanced auto-caption processing: {str(e)}")
-        logger.error(traceback.format_exc())
-        
-        error_response = {
-            "code": 500,
-            "id": "script-enhanced-auto-caption",
-            "job_id": job_id,
-            "message": "error",
-            "error": str(e)
-        }
-        
-        # Send webhook with error if provided
-        if webhook_url:
-            try:
-                send_webhook(webhook_url, error_response)
-            except Exception as webhook_error:
-                logger.error(f"Failed to send error webhook: {str(webhook_error)}")
-        
-        raise ValueError(f"Script-enhanced auto-caption processing error: {str(e)}")
-        
+        logger.error(f"Job {job_id}: Error in script-enhanced auto-captioning: {str(e)}")
+        logger.error(f"Job {job_id}: {traceback.format_exc()}")
+        return {"error": str(e)}
+    
     finally:
-        # Clean up temporary files
-        try:
-            for root, dirs, files in os.walk(temp_dir):
-                for file in files:
-                    os.remove(os.path.join(root, file))
-                for dir in dirs:
-                    shutil.rmtree(os.path.join(root, dir), ignore_errors=True)
-            shutil.rmtree(temp_dir, ignore_errors=True)
-            logger.info(f"Job {job_id}: Cleaned up temporary files")
-        except Exception as cleanup_error:
-            logger.warning(f"Job {job_id}: Error during cleanup: {str(cleanup_error)}")
+        # Clean up temporary directory
+        if os.path.exists(temp_dir):
+            try:
+                shutil.rmtree(temp_dir)
+                logger.info(f"Job {job_id}: Cleaned up temporary directory {temp_dir}")
+            except Exception as e:
+                logger.warning(f"Job {job_id}: Failed to clean up temporary directory: {str(e)}")
 
 def apply_padding_to_video(video_path, padding_top=0, padding_bottom=0, padding_left=0, padding_right=0, padding_color="white", job_id=None):
     """

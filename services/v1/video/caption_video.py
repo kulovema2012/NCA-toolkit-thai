@@ -396,278 +396,190 @@ def add_subtitles_to_video(video_path, subtitle_path, output_path=None, font_nam
     Returns:
         Path to the output video with subtitles
     """
-    logger.info(f"=== STARTING ADD SUBTITLES TO VIDEO PROCESS ===")
-    logger.info(f"Adding subtitles to video: {video_path}")
-    logger.debug(f"Subtitle path: {subtitle_path}")
-    logger.debug(f"Font settings: font_name={font_name}, font_size={font_size}, margin_v={margin_v}")
-    logger.debug(f"Position: {position}, Alignment: {alignment}, Style: {subtitle_style}")
-    logger.debug(f"Colors: line_color={line_color}, outline_color={outline_color}, back_color={back_color}")
-    logger.debug(f"Styling: outline={outline}, shadow={shadow}, bold={bold}, italic={italic}, underline={underline}, strikeout={strikeout}")
+    start_time = time.time()
     
-    # Determine if this is a Thai subtitle file by checking the extension and content
-    is_thai = False
-    logger.debug("Checking if subtitle file contains Thai text")
+    if job_id is None:
+        job_id = str(uuid.uuid4())
     
-    # Check file extension first
-    if subtitle_path.lower().endswith('.ass'):
-        logger.debug("Detected ASS subtitle format")
-        # For ASS files, check if it contains Thai characters
-        try:
-            with open(subtitle_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-                logger.debug(f"Read ASS file, content length: {len(content)} bytes")
-                # Check for Thai Unicode range
-                if re.search(r'[\u0E00-\u0E7F]', content):
-                    is_thai = True
-                    logger.info("Detected Thai language in ASS subtitle file")
-                else:
-                    logger.debug("No Thai text detected in ASS file")
-        except Exception as e:
-            logger.warning(f"Error checking ASS file for Thai content: {str(e)}")
-    elif subtitle_path.lower().endswith('.srt'):
-        logger.debug("Detected SRT subtitle format")
-        # For SRT files, check if it contains Thai characters
-        try:
-            with open(subtitle_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-                logger.debug(f"Read SRT file, content length: {len(content)} bytes")
-                # Check for Thai Unicode range
-                if re.search(r'[\u0E00-\u0E7F]', content):
-                    is_thai = True
-                    logger.info("Detected Thai language in SRT subtitle file")
-                    
-                    # For Thai SRT files, convert to ASS for better rendering
-                    if font_name is None:
-                        font_name = get_available_thai_font()
-                        logger.info(f"Using detected Thai font: {font_name}")
-                    else:
-                        logger.debug(f"Using specified font for Thai: {font_name}")
-                    
-                    logger.info("Converting SRT to ASS for Thai subtitles")
-                    logger.debug(f"Conversion parameters: font_size={font_size}, margin_v={margin_v}, alignment={alignment}")
-                    ass_path = convert_srt_to_ass_for_thai(
-                        srt_path=subtitle_path,
-                        font_name=font_name,
-                        font_size=font_size,
-                        primary_color=line_color,
-                        outline_color=outline_color,
-                        back_color=back_color,
-                        alignment=alignment,
-                        margin_v=margin_v
-                    )
-                    subtitle_path = ass_path
-                    logger.info(f"Using converted ASS file: {subtitle_path}")
-                else:
-                    logger.debug("No Thai text detected in SRT file")
-        except Exception as e:
-            logger.warning(f"Error checking SRT file for Thai content: {str(e)}")
-    else:
-        logger.warning(f"Unrecognized subtitle format: {subtitle_path}")
+    logger.info(f"Job {job_id}: Starting add_subtitles_to_video process")
+    logger.info(f"Job {job_id}: Input video: {video_path}")
+    logger.info(f"Job {job_id}: Subtitle file: {subtitle_path}")
     
-    # If no output path specified, create one
-    if not output_path:
+    # Validate input files
+    if not os.path.exists(video_path):
+        logger.error(f"Job {job_id}: Video file does not exist: {video_path}")
+        return None
+    
+    if not os.path.exists(subtitle_path):
+        logger.error(f"Job {job_id}: Subtitle file does not exist: {subtitle_path}")
+        return None
+    
+    # Set default output path if not provided
+    if output_path is None:
         output_dir = os.path.dirname(video_path)
-        video_filename = os.path.basename(video_path)
-        video_name, video_ext = os.path.splitext(video_filename)
-        output_path = os.path.join(output_dir, f"{video_name}_subtitled{video_ext}")
-        logger.debug(f"No output path specified, using: {output_path}")
+        output_filename = f"captioned_{os.path.basename(video_path)}"
+        output_path = os.path.join(output_dir, output_filename)
     
-    # Get video dimensions for scaling
-    try:
-        logger.debug("Getting video dimensions for proper subtitle scaling")
-        video_info = get_video_info(video_path)
-        width = int(video_info.get('width', 1280))
-        height = int(video_info.get('height', 720))
-        logger.debug(f"Video dimensions: {width}x{height}")
+    logger.info(f"Job {job_id}: Output path: {output_path}")
+    
+    # Process subtitle file to improve formatting
+    logger.info(f"Job {job_id}: Processing subtitle file")
+    
+    # Check if the subtitle file is in Thai
+    is_thai = contains_thai(subtitle_path)
+    logger.info(f"Job {job_id}: Subtitle file contains Thai text: {is_thai}")
+    
+    # Process SRT file to improve formatting
+    processed_srt_path = process_srt_file(subtitle_path, max_words_per_line=max_words_per_line, is_thai=is_thai)
+    logger.info(f"Job {job_id}: Processed SRT file: {processed_srt_path}")
+    
+    # Set default font for Thai if needed
+    if is_thai and font_name in ["Arial", "Helvetica", "Times New Roman"]:
+        font_name = get_available_thai_font()
+        logger.info(f"Job {job_id}: Using Thai font: {font_name}")
+    
+    # Set default colors if not provided
+    if line_color is None:
+        line_color = "white"
+    if outline_color is None:
+        outline_color = "black"
+    
+    logger.info(f"Job {job_id}: Font settings - name: {font_name}, size: {font_size}, color: {line_color}")
+    logger.info(f"Job {job_id}: Style settings - style: {subtitle_style}, position: {position}, alignment: {alignment}")
+    
+    # Convert alignment string to number if needed
+    if isinstance(alignment, str):
+        alignment_map = {
+            "left": 1,
+            "center": 2,
+            "right": 3
+        }
+        alignment = alignment_map.get(alignment.lower(), 2)
+        logger.info(f"Job {job_id}: Converted alignment to: {alignment}")
+    
+    # Prepare font formatting options
+    font_formatting = {
+        "bold": bold,
+        "italic": italic,
+        "underline": underline,
+        "strikeout": strikeout
+    }
+    
+    logger.info(f"Job {job_id}: Font formatting: {font_formatting}")
+    
+    # Convert SRT to ASS for better styling
+    ass_path = processed_srt_path.replace(".srt", ".ass")
+    
+    if is_thai:
+        logger.info(f"Job {job_id}: Converting SRT to ASS with Thai text handling")
+        convert_srt_to_ass_for_thai(
+            processed_srt_path,
+            font_name=font_name,
+            font_size=font_size,
+            primary_color=line_color,
+            outline_color=outline_color,
+            back_color=back_color,
+            alignment=alignment,
+            margin_v=margin_v,
+            max_words_per_line=max_words_per_line,
+            max_width=max_width
+        )
+    else:
+        logger.info(f"Job {job_id}: Converting SRT to ASS with standard text handling")
+        convert_srt_to_ass(
+            processed_srt_path,
+            ass_path,
+            font_name=font_name,
+            font_size=font_size,
+            line_color=line_color,
+            outline_color=outline_color,
+            word_color=word_color,
+            alignment=alignment,
+            margin_v=margin_v,
+            subtitle_style=subtitle_style,
+            max_width=max_width,
+            all_caps=all_caps,
+            font_formatting=font_formatting
+        )
+    
+    # Ensure ASS file exists
+    if not os.path.exists(ass_path):
+        logger.error(f"Job {job_id}: Failed to create ASS file")
+        return None
+    
+    logger.info(f"Job {job_id}: ASS file created: {ass_path}")
+    
+    # Get video info
+    video_info = get_video_info(video_path)
+    if video_info:
+        video_width = video_info.get("width", 1920)
+        video_height = video_info.get("height", 1080)
+        logger.info(f"Job {job_id}: Video dimensions: {video_width}x{video_height}")
+    else:
+        logger.warning(f"Job {job_id}: Could not get video info, using default dimensions")
+        video_width = 1920
+        video_height = 1080
+    
+    # Calculate subtitle position
+    if x is not None and y is not None:
+        # Use custom position
+        subtitle_position = f"{x}:{y}"
+        logger.info(f"Job {job_id}: Using custom subtitle position: {subtitle_position}")
+    else:
+        # Calculate position based on position parameter
+        if position == "top":
+            y_pos = margin_v
+        elif position == "middle":
+            y_pos = video_height // 2
+        else:  # bottom
+            y_pos = video_height - margin_v
         
-        # Scale font size based on video dimensions
-        original_font_size = font_size
-        if width > 1920 or height > 1080:
-            # Scale up for 4K and higher
-            scale_factor = min(width / 1920, height / 1080)
-            font_size = int(font_size * scale_factor)
-            logger.debug(f"Scaling up font size for high resolution: {original_font_size} -> {font_size}")
-        elif width < 1280 or height < 720:
-            # Scale down for smaller videos
-            scale_factor = max(width / 1280, height / 720)
-            font_size = max(int(font_size * scale_factor), 16)  # Minimum size of 16
-            logger.debug(f"Scaling down font size for low resolution: {original_font_size} -> {font_size}")
-        else:
-            logger.debug(f"Using original font size: {font_size} (no scaling needed)")
-    except Exception as e:
-        logger.warning(f"Error getting video dimensions: {str(e)}. Using default font size.")
+        subtitle_position = f"(w-text_w)/2:{y_pos}"
+        logger.info(f"Job {job_id}: Using calculated subtitle position: {subtitle_position} (based on '{position}')")
     
     # Prepare FFmpeg command
-    logger.debug("Preparing FFmpeg command for adding subtitles")
+    ffmpeg_cmd = [
+        "ffmpeg",
+        "-i", video_path,
+        "-vf", f"ass={ass_path}",
+        "-c:v", "libx264",
+        "-preset", "fast",
+        "-crf", "22",
+        "-c:a", "aac",
+        "-b:a", "128k",
+        "-y",
+        output_path
+    ]
     
-    # Determine if we're using ASS or SRT subtitles
-    subtitle_ext = os.path.splitext(subtitle_path)[1].lower()
-    logger.debug(f"Subtitle extension: {subtitle_ext}")
-    
-    if subtitle_ext == '.ass':
-        logger.debug("Using ASS subtitle format with FFmpeg")
-        # For ASS subtitles, use the subtitle filter
-        subtitle_path_fixed = subtitle_path.replace('\\', '/')
-        
-        # Check if custom x,y coordinates are provided
-        if x is not None and y is not None:
-            logger.info(f"Using custom coordinates for ASS subtitles: x={x}, y={y}")
-            # Create a temporary copy of the ASS file with modified coordinates
-            temp_ass_path = subtitle_path_fixed + ".temp.ass"
-            try:
-                with open(subtitle_path_fixed, 'r', encoding='utf-8') as f_in:
-                    content = f_in.read()
-                
-                # Replace any existing \pos tags or add our own
-                if "\\pos(" in content:
-                    logger.debug("Found existing \\pos tag, replacing with custom coordinates")
-                    content = re.sub(r'\\pos\([^)]+\)', f"\\pos({x},{y})", content)
-                else:
-                    logger.debug("No existing \\pos tag found, adding custom coordinates to dialogue lines")
-                    # Add \pos tag to each dialogue line
-                    content = re.sub(r'(Dialogue:[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,)', 
-                                    f'\\1{{\\pos({x},{y})}}', content)
-                
-                with open(temp_ass_path, 'w', encoding='utf-8') as f_out:
-                    f_out.write(content)
-                
-                logger.info(f"Created temporary ASS file with custom coordinates: {temp_ass_path}")
-                subtitle_path_fixed = temp_ass_path
-            except Exception as e:
-                logger.error(f"Error modifying ASS file with custom coordinates: {str(e)}")
-                # Continue with original file if modification fails
-        
-        ffmpeg_cmd = [
-            "ffmpeg", "-y",
-            "-i", video_path,
-            "-vf", f"ass='{subtitle_path_fixed}'",
-            "-c:v", "libx264", "-crf", "18",
-            "-c:a", "copy",
-            output_path
-        ]
-        logger.debug(f"Using ASS filter: ass='{subtitle_path_fixed}'")
-    else:
-        logger.debug("Using SRT subtitle format with FFmpeg")
-        # For SRT subtitles, use the subtitles filter with styling
-        
-        # Determine position
-        if position.lower() == "top":
-            y_position = f"(h-text_h)/10"
-            logger.debug(f"Setting subtitles at top position: y={y_position}")
-        elif position.lower() == "middle":
-            y_position = f"(h-text_h)/2"
-            logger.debug(f"Setting subtitles at middle position: y={y_position}")
-        else:  # bottom
-            y_position = f"h-text_h-{margin_v}"
-            logger.debug(f"Setting subtitles at bottom position: y={y_position} with margin_v={margin_v}")
-        
-        # Determine alignment
-        if alignment == 1:
-            x_position = "10"
-            logger.debug(f"Setting left alignment: x={x_position}")
-        elif alignment == 3:
-            x_position = "w-text_w-10"
-            logger.debug(f"Setting right alignment: x={x_position}")
-        else:  # center
-            x_position = "(w-text_w)/2"
-            logger.debug(f"Setting center alignment: x={x_position}")
-        
-        # Prepare font settings
-        if not font_name:
-            font_name = "Arial"
-            logger.debug(f"No font specified, using default: {font_name}")
-        
-        # Prepare colors
-        if line_color.startswith('#'):
-            line_color = line_color.lstrip('#')
-            logger.debug(f"Converted line_color from #{line_color} to {line_color}")
-        
-        if outline_color.startswith('#'):
-            outline_color = outline_color.lstrip('#')
-            logger.debug(f"Converted outline_color from #{outline_color} to {line_color}")
-        
-        # Prepare subtitle filter
-        subtitle_path_fixed = subtitle_path.replace('\\', '/')
-        subtitle_filter = f"subtitles='{subtitle_path_fixed}'"
-        subtitle_filter += f":force_style='FontName={font_name},FontSize={font_size}"
-        
-        if line_color:
-            subtitle_filter += f",PrimaryColour=&H{line_color}"
-        
-        if outline_color:
-            subtitle_filter += f",OutlineColour=&H{outline_color}"
-        
-        if back_color:
-            subtitle_filter += f",BackColour={back_color}"
-        
-        # Add alignment and position
-        subtitle_filter += f",Alignment={alignment},MarginV={margin_v}"
-        
-        # Add outline and shadow settings
-        if outline:
-            subtitle_filter += ",Outline=3"
-        else:
-            subtitle_filter += ",Outline=0"
-            
-        if shadow:
-            subtitle_filter += ",Shadow=2"
-        else:
-            subtitle_filter += ",Shadow=0"
-            
-        # Add bold, italic, underline, and strikeout settings
-        if bold:
-            subtitle_filter += ",Bold=1"
-        else:
-            subtitle_filter += ",Bold=0"
-            
-        if italic:
-            subtitle_filter += ",Italic=1"
-        else:
-            subtitle_filter += ",Italic=0"
-            
-        if underline:
-            subtitle_filter += ",Underline=1"
-        else:
-            subtitle_filter += ",Underline=0"
-            
-        if strikeout:
-            subtitle_filter += ",StrikeOut=1"
-        else:
-            subtitle_filter += ",StrikeOut=0"
-        
-        logger.debug(f"Subtitle filter: {subtitle_filter}")
-        
-        ffmpeg_cmd = [
-            "ffmpeg", "-y",
-            "-i", video_path,
-            "-vf", subtitle_filter,
-            "-c:v", "libx264", "-crf", "18",
-            "-c:a", "copy",
-            output_path
-        ]
+    logger.info(f"Job {job_id}: FFmpeg command: {' '.join(ffmpeg_cmd)}")
     
     # Execute FFmpeg command
-    logger.info("Executing FFmpeg command to add subtitles")
-    logger.debug(f"FFmpeg command: {' '.join(ffmpeg_cmd)}")
-    
     try:
-        logger.debug("Starting FFmpeg subprocess")
-        process = subprocess.Popen(ffmpeg_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        logger.info(f"Job {job_id}: Executing FFmpeg command")
+        process = subprocess.Popen(ffmpeg_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         stdout, stderr = process.communicate()
-        logger.debug(f"FFmpeg process completed with return code: {process.returncode}")
         
         if process.returncode != 0:
-            logger.error(f"FFmpeg error: {stderr}")
-            raise Exception(f"FFmpeg error: {stderr}")
+            logger.error(f"Job {job_id}: FFmpeg error: {stderr.decode('utf-8', errors='ignore')}")
+            return None
         
-        logger.info(f"Successfully added subtitles to video: {output_path}")
-        logger.debug(f"Output video size: {os.path.getsize(output_path)} bytes")
+        logger.info(f"Job {job_id}: FFmpeg completed successfully")
+        
+        # Check if output file exists
+        if not os.path.exists(output_path):
+            logger.error(f"Job {job_id}: Output file does not exist after FFmpeg: {output_path}")
+            return None
+        
+        # Calculate processing time
+        end_time = time.time()
+        processing_time = end_time - start_time
+        logger.info(f"Job {job_id}: Subtitles added successfully in {processing_time:.2f} seconds")
+        
         return output_path
+    
     except Exception as e:
-        logger.error(f"Error adding subtitles to video: {str(e)}")
-        import traceback
-        logger.error(f"Traceback: {traceback.format_exc()}")
-        raise
+        logger.error(f"Job {job_id}: Error adding subtitles to video: {str(e)}")
+        return None
 
 def process_srt_file(subtitle_path, max_words_per_line=7, is_thai=False):
     """

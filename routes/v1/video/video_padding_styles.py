@@ -4,16 +4,19 @@ import logging
 import re
 from flask import Blueprint, request, jsonify
 from services.v1.ffmpeg.ffmpeg_compose import process_ffmpeg_compose
-from services.v1.video.caption_video import add_padding_to_video
 from services.file_management import get_temp_file_path
+import uuid
+
+logger = logging.getLogger(__name__)
 
 try:
     import pythainlp
     from pythainlp.tokenize import word_tokenize
     PYTHAINLP_AVAILABLE = True
+    logger.info("PyThaiNLP is available for Thai word segmentation")
 except ImportError:
     PYTHAINLP_AVAILABLE = False
-    logging.warning("PyThaiNLP not available. Falling back to basic Thai text splitting.")
+    logger.warning("PyThaiNLP not available. Falling back to basic Thai text splitting.")
 
 v1_video_padding_styles_bp = Blueprint('v1_video_padding_styles', __name__)
 
@@ -51,7 +54,7 @@ def split_thai_text(text, num_lines):
             
             return lines
         except Exception as e:
-            logging.warning(f"Error using PyThaiNLP for word segmentation: {str(e)}")
+            logger.warning(f"Error using PyThaiNLP for word segmentation: {str(e)}")
             # Fall back to basic splitting if PyThaiNLP fails
     
     # Basic Thai text splitting using common prefixes/suffixes
@@ -220,12 +223,17 @@ def process_video_padding_styles():
     """
     Apply advanced padding styles to a video (gradients, patterns, etc.)
     """
+    job_id = str(uuid.uuid4())
+    logger.info(f"Job {job_id}: Starting video padding styles processing")
+    
     try:
         data = request.get_json()
+        logger.info(f"Job {job_id}: Received request data: {json.dumps(data, indent=2)}")
         
         # Required parameters
         video_url = data.get('video_url')
         if not video_url:
+            logger.error(f"Job {job_id}: Missing required parameter: video_url")
             return jsonify({"error": "Missing required parameter: video_url"}), 400
             
         # Optional parameters with defaults
@@ -234,6 +242,8 @@ def process_video_padding_styles():
         padding_bottom = data.get('padding_bottom', 0)
         padding_left = data.get('padding_left', 0)
         padding_right = data.get('padding_right', 0)
+        
+        logger.info(f"Job {job_id}: Using padding style: {padding_style}, dimensions: top={padding_top}, bottom={padding_bottom}, left={padding_left}, right={padding_right}")
         
         # Style-specific parameters
         padding_color = data.get('padding_color', 'white')
@@ -253,18 +263,23 @@ def process_video_padding_styles():
         text_style = data.get('text_style', 'outline')  # simple, outline, shadow, glow, 3d
         text_position = data.get('text_position', 'center')  # center, left, right, top, bottom
         
+        logger.info(f"Job {job_id}: Title text: '{title_text}', font: {font_name}, size: {font_size}, style: {text_style}")
+        
         # Prepare the FFmpeg compose request
         input_width = 1080  # Default width
         input_height = 1920 - padding_top - padding_bottom  # Default height minus padding
         
         # Create filter based on padding style
+        logger.info(f"Job {job_id}: Creating filter for {padding_style} style")
         if padding_style == 'gradient':
             if gradient_direction == 'horizontal':
+                logger.info(f"Job {job_id}: Using horizontal gradient from {gradient_start_color} to {gradient_end_color}")
                 filter_complex = f"scale={input_width}:{input_height}[video];" + \
                     f"color=s={input_width}x{1920}:c=black,format=rgba," + \
                     f"geq=r='X/{input_width}*255':g='(1-X/{input_width})*255':b='128':a='255'[bg];" + \
                     f"[bg][video]overlay={padding_left}:{padding_top}"
             else:  # vertical
+                logger.info(f"Job {job_id}: Using vertical gradient from {gradient_start_color} to {gradient_end_color}")
                 filter_complex = f"scale={input_width}:{input_height}[video];" + \
                     f"color=s={input_width}x{1920}:c=black,format=rgba," + \
                     f"geq=r='Y/1920*255':g='(1-Y/1920)*255':b='128':a='255'[bg];" + \
@@ -274,6 +289,7 @@ def process_video_padding_styles():
             center_y = padding_top / 2
             radius = max(input_width, padding_top) / 2
             
+            logger.info(f"Job {job_id}: Using radial gradient with center at ({center_x}, {center_y}) and radius {radius}")
             filter_complex = f"scale={input_width}:{input_height}[video];" + \
                 f"color=s={input_width}x{1920}:c=black,format=rgba," + \
                 f"geq=r='(1-hypot(X-{center_x},Y-{center_y})/{radius})*255':" + \
@@ -281,6 +297,7 @@ def process_video_padding_styles():
                 f"b='(1-hypot(X-{center_x},Y-{center_y})/{radius})*255':a='255'[bg];" + \
                 f"[bg][video]overlay={padding_left}:{padding_top}"
         elif padding_style == 'checkerboard':
+            logger.info(f"Job {job_id}: Using checkerboard pattern with size {pattern_size} and colors {pattern_color1}, {pattern_color2}")
             filter_complex = f"scale={input_width}:{input_height}[video];" + \
                 f"color=s={input_width}x{1920}:c={pattern_color1}[bg1];" + \
                 f"color=s={input_width}x{1920}:c={pattern_color2}[bg2];" + \
@@ -290,6 +307,7 @@ def process_video_padding_styles():
                 f"[bg_blend][checkerboard]alphamerge[bg];" + \
                 f"[bg][video]overlay={padding_left}:{padding_top}"
         elif padding_style == 'stripes':
+            logger.info(f"Job {job_id}: Using stripes pattern with size {pattern_size} and colors {pattern_color1}, {pattern_color2}")
             filter_complex = f"scale={input_width}:{input_height}[video];" + \
                 f"color=s={input_width}x{1920}:c={pattern_color1}[bg1];" + \
                 f"color=s={input_width}x{1920}:c={pattern_color2}[bg2];" + \
@@ -299,13 +317,16 @@ def process_video_padding_styles():
                 f"[bg_blend][stripes]alphamerge[bg];" + \
                 f"[bg][video]overlay={padding_left}:{padding_top}"
         else:  # solid
+            logger.info(f"Job {job_id}: Using solid color padding with color {padding_color}")
             filter_complex = f"scale={input_width}:{input_height}," + \
                 f"pad={input_width}:{1920}:{padding_left}:{padding_top}:color={padding_color}"
         
         # Add title text if provided
         if title_text:
+            logger.info(f"Job {job_id}: Processing title text: '{title_text}'")
             # Process title text for better line breaks using server-side function
             lines = smart_text_layout(title_text, input_width, padding_top, font_size)
+            logger.info(f"Job {job_id}: Split title into {len(lines)} lines: {lines}")
             
             # Calculate line height and positioning
             line_height = min(font_size * 1.3, padding_top / (len(lines) + 1))
@@ -315,15 +336,20 @@ def process_video_padding_styles():
             title_height = len(lines) * line_height
             y_start = max(10, (padding_top - title_height) / 2)
             
+            logger.info(f"Job {job_id}: Text layout - line height: {line_height}, border width: {border_w}, y start: {y_start}")
+            
             # Safety check - ensure text fits in padded area
             if y_start + title_height > padding_top - 10:
+                logger.info(f"Job {job_id}: Text too large for padding area, reducing font size")
                 font_size = int(font_size * 0.9)
                 border_w = max(1, int(font_size / 25))
                 line_height = min(font_size * 1.3, padding_top / (len(lines) + 1))
                 y_start = max(10, (padding_top - len(lines) * line_height) / 2)
+                logger.info(f"Job {job_id}: Adjusted text layout - font size: {font_size}, line height: {line_height}, y start: {y_start}")
             
             # Determine text position
             position_x = "(w-text_w)/2" if text_position == 'center' else "20" if text_position == 'left' else "w-text_w-20"
+            logger.info(f"Job {job_id}: Text position: {text_position}, x formula: {position_x}")
             
             # Add each line of text
             for i, line in enumerate(lines):
@@ -332,11 +358,14 @@ def process_video_padding_styles():
                 
                 # Determine text style
                 if text_style == 'shadow':
+                    logger.info(f"Job {job_id}: Using shadow text style for line {i+1}")
                     text_effect = f":fontcolor={font_color}:shadowcolor={border_color}:shadowx=2:shadowy=2"
                 elif text_style == 'glow':
+                    logger.info(f"Job {job_id}: Using glow text style for line {i+1}")
                     text_effect = f":fontcolor={font_color}:bordercolor={border_color}:borderw=3:box=1:boxcolor={border_color}@0.5:boxborderw=1"
                 elif text_style == '3d':
                     # For 3D effect, we need to add multiple drawtext filters
+                    logger.info(f"Job {job_id}: Using 3D text style for line {i+1}")
                     filter_complex += f",drawtext=text='{escaped_line}':" + \
                         f"fontfile=/usr/share/fonts/truetype/thai-tlwg/{font_name}.ttf:" + \
                         f"fontsize={font_size}:fontcolor={border_color}:" + \
@@ -344,12 +373,15 @@ def process_video_padding_styles():
                     
                     text_effect = f":fontcolor={font_color}"
                 else:  # outline or simple
+                    logger.info(f"Job {job_id}: Using outline text style for line {i+1}")
                     text_effect = f":fontcolor={font_color}:bordercolor={border_color}:borderw={border_w}"
                 
                 filter_complex += f",drawtext=text='{escaped_line}':" + \
                     f"fontfile=/usr/share/fonts/truetype/thai-tlwg/{font_name}.ttf:" + \
                     f"fontsize={font_size}{text_effect}:" + \
                     f"x={position_x}:y={y_start + i * line_height}"
+        
+        logger.info(f"Job {job_id}: Final filter complex: {filter_complex}")
         
         # Prepare FFmpeg compose request
         ffmpeg_request = {
@@ -384,14 +416,16 @@ def process_video_padding_styles():
                 "bitrate": True,
                 "encoder": True
             },
-            "id": f"padding-style-{padding_style}"
+            "id": f"padding-style-{padding_style}-{job_id}"
         }
         
         # Process the request
+        logger.info(f"Job {job_id}: Sending request to FFmpeg compose service")
         result = process_ffmpeg_compose(ffmpeg_request)
+        logger.info(f"Job {job_id}: FFmpeg compose completed with result: {json.dumps(result, indent=2)}")
         
         return jsonify(result)
         
     except Exception as e:
-        logging.error(f"Error in video padding styles: {str(e)}")
+        logger.error(f"Job {job_id}: Error in video padding styles: {str(e)}", exc_info=True)
         return jsonify({"error": str(e)}), 500
