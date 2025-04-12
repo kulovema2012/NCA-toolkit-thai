@@ -126,13 +126,7 @@ def script_enhanced_auto_caption():
         "padding_top": "Top padding value (in pixels)",
         "padding_bottom": "Bottom padding value (in pixels)",
         "padding_left": "Left padding value (in pixels)",
-        "padding_right": "Right padding value (in pixels)",
-        "padding_style": "Style of padding (solid, gradient, pattern, image)",
-        "gradient_colors": "List of colors for gradient padding",
-        "gradient_direction": "Direction of the gradient (vertical, horizontal, radial)",
-        "pattern_type": "Type of pattern (checkerboard, stripes)",
-        "pattern_image": "Path to image for image-based pattern",
-        "pattern_size": "Size of pattern elements in pixels"
+        "padding_right": "Right padding value (in pixels)"
     }
     """
     try:
@@ -774,12 +768,6 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
                 padding_left=padding_left,
                 padding_right=padding_right,
                 padding_color=settings_obj.get("padding_color", "white"),
-                padding_style=settings_obj.get("padding_style", "solid"),
-                gradient_colors=settings_obj.get("gradient_colors", None),
-                gradient_direction=settings_obj.get("gradient_direction", "vertical"),
-                pattern_type=settings_obj.get("pattern_type", None),
-                pattern_image=settings_obj.get("pattern_image", None),
-                pattern_size=settings_obj.get("pattern_size", 40),
                 job_id=job_id
             )
             
@@ -927,73 +915,12 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
         except Exception as cleanup_error:
             logger.warning(f"Job {job_id}: Error during cleanup: {str(cleanup_error)}")
 
-def apply_padding_to_video(video_path, output_path=None, padding_top=0, padding_bottom=0, 
-                          padding_left=0, padding_right=0, padding_color="white", 
-                          padding_style="solid", gradient_colors=None, gradient_direction="vertical",
-                          pattern_type=None, pattern_image=None, pattern_size=40, job_id=None):
+def apply_padding_to_video(video_path, padding_top=0, padding_bottom=0, padding_left=0, padding_right=0, padding_color="white", job_id=None):
     """
-    Apply padding to a video with advanced styling options.
+    Apply padding to a video.
     
     Args:
         video_path: Path to the video file
-        output_path: Path to save the output video (optional)
-        padding_top: Top padding in pixels
-        padding_bottom: Bottom padding in pixels
-        padding_left: Left padding in pixels
-        padding_right: Right padding in pixels
-        padding_color: Color of the padding (for solid padding)
-        padding_style: Style of padding ("solid", "gradient", "pattern", "image")
-        gradient_colors: List of colors for gradient padding
-        gradient_direction: Direction of the gradient ("vertical", "horizontal", "radial")
-        pattern_type: Type of pattern ("checkerboard", "stripes")
-        pattern_image: Path to image for image-based pattern
-        pattern_size: Size of pattern elements in pixels
-        job_id: Unique identifier for the job
-        
-    Returns:
-        Path to the padded video
-    """
-    if output_path is None:
-        output_path = f"/tmp/{uuid.uuid4()}_padded.mp4"
-    
-    logger.info(f"Job {job_id}: Applying {padding_style} padding to video: {video_path}")
-    logger.info(f"Job {job_id}: Padding values: Top={padding_top}, Bottom={padding_bottom}, Left={padding_left}, Right={padding_right}")
-    
-    # Apply different padding styles based on the padding_style parameter
-    if padding_style == "gradient" and gradient_colors:
-        return apply_gradient_padding(
-            video_path, output_path, padding_top, padding_bottom, padding_left, padding_right,
-            gradient_colors, gradient_direction, job_id
-        )
-    elif padding_style == "pattern" and pattern_type:
-        if pattern_type == "checkerboard":
-            return apply_checkerboard_padding(
-                video_path, output_path, padding_top, padding_bottom, padding_left, padding_right,
-                pattern_size, padding_color, "black" if padding_color == "white" else "white", job_id
-            )
-        elif pattern_type == "stripes":
-            return apply_stripes_padding(
-                video_path, output_path, padding_top, padding_bottom, padding_left, padding_right,
-                pattern_size, padding_color, "black" if padding_color == "white" else "white", job_id
-            )
-    elif padding_style == "image" and pattern_image:
-        return apply_pattern_padding_with_image(
-            video_path, output_path, pattern_image, padding_top, padding_bottom, padding_left, padding_right, job_id
-        )
-    else:
-        # Default to solid padding
-        return apply_solid_padding(
-            video_path, output_path, padding_top, padding_bottom, padding_left, padding_right, padding_color, job_id
-        )
-
-def apply_solid_padding(video_path, output_path, padding_top=0, padding_bottom=0, 
-                       padding_left=0, padding_right=0, padding_color="white", job_id=None):
-    """
-    Apply solid color padding to a video.
-    
-    Args:
-        video_path: Path to the video file
-        output_path: Path to save the output video
         padding_top: Top padding in pixels
         padding_bottom: Bottom padding in pixels
         padding_left: Left padding in pixels
@@ -1004,8 +931,13 @@ def apply_solid_padding(video_path, output_path, padding_top=0, padding_bottom=0
     Returns:
         Path to the padded video
     """
-    logger.info(f"Job {job_id}: Applying solid padding to video: {video_path}")
+    logger.info(f"Job {job_id}: Applying padding to video: {video_path}")
+    logger.info(f"Job {job_id}: Padding values: Top={padding_top}, Bottom={padding_bottom}, Left={padding_left}, Right={padding_right}")
     logger.info(f"Job {job_id}: Padding color: {padding_color}")
+    
+    # Create output path
+    output_path = f"/tmp/{uuid.uuid4()}_padded.mp4"
+    logger.info(f"Job {job_id}: Output path: {output_path}")
     
     # Get video dimensions
     video_info = get_video_info(video_path)
@@ -1046,310 +978,3 @@ def apply_solid_padding(video_path, output_path, padding_top=0, padding_bottom=0
         logger.error(f"Job {job_id}: Error executing FFmpeg command: {e}")
         logger.error(f"Job {job_id}: FFmpeg stderr: {e.stderr}")
         raise Exception(f"Error applying padding to video: {e.stderr}")
-
-def apply_gradient_padding(video_path, output_path, padding_top=0, padding_bottom=0, 
-                          padding_left=0, padding_right=0, 
-                          gradient_colors=None, gradient_direction="vertical", job_id=None):
-    """
-    Apply gradient padding to a video.
-    
-    Args:
-        video_path: Path to the video file
-        output_path: Path to save the output video
-        padding_top: Top padding in pixels
-        padding_bottom: Bottom padding in pixels
-        padding_left: Left padding in pixels
-        padding_right: Right padding in pixels
-        gradient_colors: List of colors for the gradient (default: ["white", "skyblue"])
-        gradient_direction: Direction of the gradient (default: "vertical", can be "horizontal", "radial")
-        job_id: Unique identifier for the job
-        
-    Returns:
-        Path to the padded video
-    """
-    logger.info(f"Job {job_id}: Applying gradient padding to video: {video_path}")
-    
-    # Default gradient colors if none provided
-    if not gradient_colors:
-        gradient_colors = ["white", "skyblue"]
-    
-    logger.info(f"Job {job_id}: Gradient colors: {gradient_colors}")
-    logger.info(f"Job {job_id}: Gradient direction: {gradient_direction}")
-    
-    # Get video dimensions
-    video_info = get_video_info(video_path)
-    width = int(video_info.get("width", 1280))
-    height = int(video_info.get("height", 720))
-    logger.info(f"Job {job_id}: Original video dimensions: {width}x{height}")
-    
-    # Calculate new dimensions
-    new_width = width + padding_left + padding_right
-    new_height = height + padding_top + padding_bottom
-    logger.info(f"Job {job_id}: New video dimensions: {new_width}x{new_height}")
-    
-    # Create gradient specification based on direction
-    if gradient_direction == "horizontal":
-        gradient_filter = f"geq=r='X/{new_width}*255':g='(1-X/{new_width})*255':b='128':a='255'"
-    elif gradient_direction == "radial":
-        gradient_filter = f"geq=r='(X-{new_width/2})*(X-{new_width/2})+(Y-{new_height/2})*(Y-{new_height/2}) < {min(new_width, new_height)}*{min(new_width, new_height)}/4 ? 255 : 0':g='(X-{new_width/2})*(X-{new_width/2})+(Y-{new_height/2})*(Y-{new_height/2}) < {min(new_width, new_height)}*{min(new_width, new_height)}/8 ? 255 : 0':b='(X-{new_width/2})*(X-{new_width/2})+(Y-{new_height/2})*(Y-{new_height/2}) < {min(new_width, new_height)}*{min(new_width, new_height)}/16 ? 255 : 0':a='255'"
-    else:  # vertical (default)
-        gradient_filter = f"geq=r='Y/{new_height}*255':g='(1-Y/{new_height})*255':b='128':a='255'"
-    
-    # Convert colors to FFmpeg format if needed
-    color1 = gradient_colors[0]
-    color2 = gradient_colors[1] if len(gradient_colors) > 1 else gradient_colors[0]
-    
-    # Create FFmpeg command with gradient
-    ffmpeg_cmd = [
-        "ffmpeg", "-y",
-        "-i", video_path,
-        "-filter_complex",
-        f"color=s={new_width}x{new_height}:c=black,format=rgba,{gradient_filter}[bg];" +
-        f"[bg][0:v]overlay={padding_left}:{padding_top}[v]",
-        "-map", "[v]",
-        "-map", "0:a?",
-        "-c:v", "libx264", "-crf", "18",
-        "-c:a", "copy",
-        output_path
-    ]
-    
-    # Execute FFmpeg command
-    logger.info(f"Job {job_id}: Executing FFmpeg command: {' '.join(ffmpeg_cmd)}")
-    try:
-        result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True, check=True)
-        logger.info(f"Job {job_id}: FFmpeg command executed successfully")
-        logger.debug(f"Job {job_id}: FFmpeg stdout: {result.stdout}")
-        
-        # Check if output file exists
-        if os.path.exists(output_path):
-            logger.info(f"Job {job_id}: Gradient padded video created successfully: {output_path}")
-            return output_path
-        else:
-            logger.error(f"Job {job_id}: Gradient padded video was not created: {output_path}")
-            raise FileNotFoundError(f"Gradient padded video was not created: {output_path}")
-    except subprocess.CalledProcessError as e:
-        logger.error(f"Job {job_id}: Error executing FFmpeg command: {e}")
-        logger.error(f"Job {job_id}: FFmpeg stderr: {e.stderr}")
-        raise Exception(f"Error applying gradient padding to video: {e.stderr}")
-
-def apply_checkerboard_padding(video_path, output_path, padding_top=0, padding_bottom=0, 
-                              padding_left=0, padding_right=0, 
-                              checker_size=40, color1="white", color2="black", job_id=None):
-    """
-    Apply checkerboard pattern padding to a video.
-    
-    Args:
-        video_path: Path to the video file
-        output_path: Path to save the output video
-        padding_top: Top padding in pixels
-        padding_bottom: Bottom padding in pixels
-        padding_left: Left padding in pixels
-        padding_right: Right padding in pixels
-        checker_size: Size of each checker square in pixels
-        color1: First color of the checkerboard
-        color2: Second color of the checkerboard
-        job_id: Unique identifier for the job
-        
-    Returns:
-        Path to the padded video
-    """
-    logger.info(f"Job {job_id}: Applying checkerboard padding to video: {video_path}")
-    logger.info(f"Job {job_id}: Checker size: {checker_size}, Colors: {color1}/{color2}")
-    
-    # Get video dimensions
-    video_info = get_video_info(video_path)
-    width = int(video_info.get("width", 1280))
-    height = int(video_info.get("height", 720))
-    logger.info(f"Job {job_id}: Original video dimensions: {width}x{height}")
-    
-    # Calculate new dimensions
-    new_width = width + padding_left + padding_right
-    new_height = height + padding_top + padding_bottom
-    logger.info(f"Job {job_id}: New video dimensions: {new_width}x{new_height}")
-    
-    # Create FFmpeg command with checkerboard pattern
-    ffmpeg_cmd = [
-        "ffmpeg", "-y",
-        "-i", video_path,
-        "-filter_complex",
-        f"color=s={new_width}x{new_height}:c={color1}[bg1];" +
-        f"color=s={new_width}x{new_height}:c={color2}[bg2];" +
-        f"nullsrc=s={new_width}x{new_height},geq=lum='if(mod(floor(X/{checker_size})+floor(Y/{checker_size}),2),255,0)':cb=128:cr=128[checkerboard];" +
-        f"[bg1][bg2]blend=all_expr='if(eq(A,0),B,A)'[bg_blend];" +
-        f"[bg_blend][checkerboard]alphamerge[bg];" +
-        f"[bg][0:v]overlay={padding_left}:{padding_top}[v]",
-        "-map", "[v]",
-        "-map", "0:a?",
-        "-c:v", "libx264", "-crf", "18",
-        "-c:a", "copy",
-        output_path
-    ]
-    
-    # Execute FFmpeg command
-    logger.info(f"Job {job_id}: Executing FFmpeg command: {' '.join(ffmpeg_cmd)}")
-    try:
-        result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True, check=True)
-        logger.info(f"Job {job_id}: FFmpeg command executed successfully")
-        logger.debug(f"Job {job_id}: FFmpeg stdout: {result.stdout}")
-        
-        # Check if output file exists
-        if os.path.exists(output_path):
-            logger.info(f"Job {job_id}: Checkerboard padded video created successfully: {output_path}")
-            return output_path
-        else:
-            logger.error(f"Job {job_id}: Checkerboard padded video was not created: {output_path}")
-            raise FileNotFoundError(f"Checkerboard padded video was not created: {output_path}")
-    except subprocess.CalledProcessError as e:
-        logger.error(f"Job {job_id}: Error executing FFmpeg command: {e}")
-        logger.error(f"Job {job_id}: FFmpeg stderr: {e.stderr}")
-        raise Exception(f"Error applying checkerboard padding to video: {e.stderr}")
-
-def apply_stripes_padding(video_path, output_path, padding_top=0, padding_bottom=0, 
-                         padding_left=0, padding_right=0, 
-                         stripe_width=20, color1="white", color2="black", job_id=None):
-    """
-    Apply striped pattern padding to a video.
-    
-    Args:
-        video_path: Path to the video file
-        output_path: Path to save the output video
-        padding_top: Top padding in pixels
-        padding_bottom: Bottom padding in pixels
-        padding_left: Left padding in pixels
-        padding_right: Right padding in pixels
-        stripe_width: Width of each stripe in pixels
-        color1: First color of the stripes
-        color2: Second color of the stripes
-        job_id: Unique identifier for the job
-        
-    Returns:
-        Path to the padded video
-    """
-    logger.info(f"Job {job_id}: Applying striped padding to video: {video_path}")
-    logger.info(f"Job {job_id}: Stripe width: {stripe_width}, Colors: {color1}/{color2}")
-    
-    # Get video dimensions
-    video_info = get_video_info(video_path)
-    width = int(video_info.get("width", 1280))
-    height = int(video_info.get("height", 720))
-    logger.info(f"Job {job_id}: Original video dimensions: {width}x{height}")
-    
-    # Calculate new dimensions
-    new_width = width + padding_left + padding_right
-    new_height = height + padding_top + padding_bottom
-    logger.info(f"Job {job_id}: New video dimensions: {new_width}x{new_height}")
-    
-    # Create FFmpeg command with striped pattern
-    ffmpeg_cmd = [
-        "ffmpeg", "-y",
-        "-i", video_path,
-        "-filter_complex",
-        f"color=s={new_width}x{new_height}:c={color1}[bg1];" +
-        f"color=s={new_width}x{new_height}:c={color2}[bg2];" +
-        f"nullsrc=s={new_width}x{new_height},geq=lum='if(mod(floor(X/{stripe_width}),2),255,0)':cb=128:cr=128[stripes];" +
-        f"[bg1][bg2]blend=all_expr='if(eq(A,0),B,A)'[bg_blend];" +
-        f"[bg_blend][stripes]alphamerge[bg];" +
-        f"[bg][0:v]overlay={padding_left}:{padding_top}[v]",
-        "-map", "[v]",
-        "-map", "0:a?",
-        "-c:v", "libx264", "-crf", "18",
-        "-c:a", "copy",
-        output_path
-    ]
-    
-    # Execute FFmpeg command
-    logger.info(f"Job {job_id}: Executing FFmpeg command: {' '.join(ffmpeg_cmd)}")
-    try:
-        result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True, check=True)
-        logger.info(f"Job {job_id}: FFmpeg command executed successfully")
-        logger.debug(f"Job {job_id}: FFmpeg stdout: {result.stdout}")
-        
-        # Check if output file exists
-        if os.path.exists(output_path):
-            logger.info(f"Job {job_id}: Striped padded video created successfully: {output_path}")
-            return output_path
-        else:
-            logger.error(f"Job {job_id}: Striped padded video was not created: {output_path}")
-            raise FileNotFoundError(f"Striped padded video was not created: {output_path}")
-    except subprocess.CalledProcessError as e:
-        logger.error(f"Job {job_id}: Error executing FFmpeg command: {e}")
-        logger.error(f"Job {job_id}: FFmpeg stderr: {e.stderr}")
-        raise Exception(f"Error applying striped padding to video: {e.stderr}")
-
-def apply_pattern_padding_with_image(video_path, output_path, pattern_image_path, 
-                                    padding_top=0, padding_bottom=0, 
-                                    padding_left=0, padding_right=0, job_id=None):
-    """
-    Apply pattern padding to a video using an image.
-    
-    Args:
-        video_path: Path to the video file
-        output_path: Path to save the output video
-        pattern_image_path: Path to the image to use as a pattern
-        padding_top: Top padding in pixels
-        padding_bottom: Bottom padding in pixels
-        padding_left: Left padding in pixels
-        padding_right: Right padding in pixels
-        job_id: Unique identifier for the job
-        
-    Returns:
-        Path to the padded video
-    """
-    logger.info(f"Job {job_id}: Applying image pattern padding to video: {video_path}")
-    logger.info(f"Job {job_id}: Pattern image: {pattern_image_path}")
-    
-    # Get video dimensions
-    video_info = get_video_info(video_path)
-    width = int(video_info.get("width", 1280))
-    height = int(video_info.get("height", 720))
-    logger.info(f"Job {job_id}: Original video dimensions: {width}x{height}")
-    
-    # Calculate new dimensions
-    new_width = width + padding_left + padding_right
-    new_height = height + padding_top + padding_bottom
-    logger.info(f"Job {job_id}: New video dimensions: {new_width}x{new_height}")
-    
-    # Download the pattern image if it's a URL
-    if pattern_image_path.startswith(("http://", "https://")):
-        try:
-            local_pattern_path = f"/tmp/{uuid.uuid4()}_pattern{os.path.splitext(pattern_image_path)[1]}"
-            logger.info(f"Job {job_id}: Downloading pattern image to {local_pattern_path}")
-            download_file(pattern_image_path, local_pattern_path)
-            pattern_image_path = local_pattern_path
-        except Exception as e:
-            logger.error(f"Job {job_id}: Error downloading pattern image: {e}")
-            raise Exception(f"Error downloading pattern image: {str(e)}")
-    
-    # Create FFmpeg command
-    ffmpeg_cmd = [
-        "ffmpeg", "-y",
-        "-i", video_path,
-        "-i", pattern_image_path,
-        "-filter_complex",
-        f"[1:v]scale={new_width}:{new_height},setsar=1[bg];" +
-        f"[bg][0:v]overlay={padding_left}:{padding_top}[v]",
-        "-map", "[v]",
-        "-map", "0:a?",
-        "-c:v", "libx264", "-crf", "18",
-        "-c:a", "copy",
-        output_path
-    ]
-    
-    # Execute FFmpeg command
-    logger.info(f"Job {job_id}: Executing FFmpeg command: {' '.join(ffmpeg_cmd)}")
-    try:
-        result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True, check=True)
-        logger.info(f"Job {job_id}: FFmpeg command executed successfully")
-        logger.debug(f"Job {job_id}: FFmpeg stdout: {result.stdout}")
-        
-        # Check if output file exists
-        if os.path.exists(output_path):
-            logger.info(f"Job {job_id}: Image pattern padded video created successfully: {output_path}")
-            return output_path
-        else:
-            logger.error(f"Job {job_id}: Image pattern padded video was not created: {output_path}")
-            raise FileNotFoundError(f"Image pattern padded video was not created: {output_path}")
-    except subprocess.CalledProcessError as e:
-        logger.error(f"Job {job_id}: Error executing FFmpeg command: {e}")
-        logger.error(f"Job {job_id}: FFmpeg stderr: {e.stderr}")
-        raise Exception(f"Error applying image pattern padding to video: {e.stderr}")
