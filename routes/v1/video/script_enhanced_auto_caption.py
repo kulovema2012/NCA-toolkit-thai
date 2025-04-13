@@ -473,26 +473,98 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
                 if segment["start"] < min_start_time:
                     segment["start"] = min_start_time
         
-        enhanced_segments = enhance_subtitles_from_segments(segments, script_text, language)
-        
-        if not enhanced_segments:
-            logger.error(f"Job {job_id}: Script alignment failed, no enhanced segments returned")
-            return {"error": "Script alignment failed"}
-        
-        enhancement_time = time.time() - enhancement_start_time
-        logger.info(f"Job {job_id}: Subtitle enhancement completed in {enhancement_time:.2f} seconds")
-        logger.info(f"Job {job_id}: Enhanced subtitles have {len(enhanced_segments)} segments")
-        
-        # Create SRT file
-        srt_path = os.path.join(temp_dir, "subtitles.srt")
-        logger.info(f"Job {job_id}: Creating SRT file at {srt_path}")
-        
-        is_thai = is_thai_text(script_text) or language == "th"
-        logger.info(f"Job {job_id}: Text detected as Thai: {is_thai}")
-        
-        # Call create_srt_file without the is_thai parameter since it's not supported
-        create_srt_file(enhanced_segments, srt_path, max_chars_per_line=max_chars_per_line)
-        logger.info(f"Job {job_id}: SRT file created successfully")
+        try:
+            # Use the enhanced subtitles function with the new signature
+            from services.v1.media.script_enhanced_subtitles import enhance_subtitles_from_segments
+            
+            # Get subtitle settings
+            subtitle_settings = {
+                "font_name": settings_obj.get("font_name", "Arial"),
+                "font_size": settings_obj.get("font_size", 24),
+                "max_width": settings_obj.get("max_width", 40),
+                "margin_v": settings_obj.get("margin_v", 30),  # Add margin_v parameter
+                "line_color": settings_obj.get("line_color", "#FFFFFF"),
+                "outline_color": settings_obj.get("outline_color", "#000000"),
+                "back_color": settings_obj.get("back_color", "&H80000000"),
+                "alignment": settings_obj.get("alignment", 2),
+                "max_words_per_line": settings_obj.get("max_words_per_line", 15),
+                "subtitle_style": settings_obj.get("subtitle_style", "modern")
+            }
+            
+            # Call the enhanced subtitles function with the new signature
+            srt_path, ass_path = enhance_subtitles_from_segments(
+                segments=segments,
+                script_text=script_text,
+                language=language,
+                settings=subtitle_settings
+            )
+            
+            logger.info(f"Generated subtitle files: SRT={srt_path}, ASS={ass_path}")
+            
+            # If Thai language and subtitle_delay is specified, create a new SRT file with the delay
+            if is_thai_text(script_text) and subtitle_delay > 0:
+                logger.info(f"Thai text detected, applying subtitle delay of {subtitle_delay} seconds")
+                delayed_srt_path = os.path.join(os.path.dirname(srt_path), f"delayed_{os.path.basename(srt_path)}")
+                
+                # Parse the original SRT file
+                with open(srt_path, 'r', encoding='utf-8') as f:
+                    srt_content = f.read()
+                
+                # Extract segments from SRT content
+                import re
+                pattern = r'(\d+)\n(\d{2}:\d{2}:\d{2},\d{3}) --> (\d{2}:\d{2}:\d{2},\d{3})\n((?:.+\n)+)'
+                matches = re.findall(pattern, srt_content, re.MULTILINE)
+                
+                segments_from_srt = []
+                for match in matches:
+                    index, start_time_str, end_time_str, text = match
+                    
+                    # Convert SRT time format to seconds
+                    def time_to_seconds(time_str):
+                        h, m, s = time_str.replace(',', '.').split(':')
+                        return int(h) * 3600 + int(m) * 60 + float(s)
+                    
+                    start_time = time_to_seconds(start_time_str)
+                    end_time = time_to_seconds(end_time_str)
+                    
+                    segments_from_srt.append({
+                        "start": start_time,
+                        "end": end_time,
+                        "text": text.strip()
+                    })
+                
+                # Create a new SRT file with the delay and improved text wrapping
+                delayed_srt_path = create_srt_file(
+                    path=delayed_srt_path,
+                    segments=segments_from_srt,
+                    delay_seconds=subtitle_delay,
+                    max_chars_per_line=max_chars_per_line
+                )
+                
+                logger.info(f"Created delayed SRT file with improved Thai text wrapping: {delayed_srt_path}")
+                
+                # Use the delayed SRT file for captioning
+                srt_path = delayed_srt_path
+                
+                # Convert the delayed SRT to ASS for better styling
+                from services.v1.video.caption_video import convert_srt_to_ass_for_thai
+                delayed_ass_path = delayed_srt_path.replace('.srt', '.ass')
+                convert_srt_to_ass_for_thai(
+                    srt_path=delayed_srt_path,
+                    font_name=subtitle_settings.get("font_name"),
+                    font_size=subtitle_settings.get("font_size"),
+                    max_words_per_line=max_chars_per_line
+                )
+                
+                if os.path.exists(delayed_ass_path):
+                    logger.info(f"Created delayed ASS file: {delayed_ass_path}")
+                    ass_path = delayed_ass_path
+            
+            # Use the ASS file for captioning
+            subtitle_path = ass_path
+        except Exception as e:
+            logger.error(f"Error in enhanced subtitles generation: {str(e)}")
+            raise ValueError(f"Enhanced subtitles generation error: {str(e)}")
         
         # Add subtitles to video
         logger.info(f"Job {job_id}: Adding subtitles to video")
