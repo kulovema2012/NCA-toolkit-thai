@@ -581,27 +581,72 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
         # Prepare response
         total_time = time.time() - start_time
         
+        # Format the response to match the previous version
         response = {
-            "file_url": output_video_path if response_type == "local" else f"/static/temp/{os.path.basename(output_video_path)}",
-            "local_path": output_video_path,
-            "processing_time": {
-                "total": round(total_time, 2),
-                "transcription": round(transcription_time, 2),
-                "enhancement": round(enhancement_time, 2),
-                "captioning": round(captioning_time, 2)
-            },
-            "file_size": file_size,
-            "segments_count": len(enhanced_segments)
+            "code": 200,
+            "id": "script-enhanced-auto-caption",
+            "job_id": job_id,
+            "message": "success",
+            "response": [
+                {
+                    "file_url": output_video_path if response_type == "local" else f"/static/temp/{os.path.basename(output_video_path)}"
+                }
+            ],
+            "run_time": round(total_time, 3),
+            "total_time": round(total_time, 3),
+            "transcription_tool": transcription_tool
         }
         
-        if include_srt:
-            response["srt_path"] = srt_path
+        # If we need to upload to cloud storage
+        try:
+            from services.cloud_storage import upload_to_cloud_storage
+            # Use a UUID for the filename to avoid collisions
+            file_uuid = str(uuid.uuid4())
+            cloud_path = f"captioned_videos/{file_uuid}_{os.path.basename(output_video_path)}"
+            cloud_url = upload_to_cloud_storage(output_video_path, cloud_path)
+            
+            # Log the upload success
+            logger.info(f"Job {job_id}: Successfully uploaded video to cloud storage: {cloud_url}")
+            
+            # Update the response with the cloud URL
+            response["response"][0]["file_url"] = cloud_url
+        except Exception as e:
+            logger.error(f"Job {job_id}: Failed to upload captioned video to cloud storage: {str(e)}")
+            logger.error(f"Job {job_id}: {traceback.format_exc()}")
+            # Fall back to local file path if upload fails
+            if response_type != "local":
+                response["response"][0]["file_url"] = f"file://{output_video_path}"
+        
+        # Add SRT URL to the response only if explicitly requested
+        if srt_path and include_srt:
+            try:
+                from services.cloud_storage import upload_to_cloud_storage
+                # Use a UUID for the filename to avoid collisions
+                file_uuid = str(uuid.uuid4())
+                srt_cloud_path = f"subtitles/{file_uuid}_{os.path.basename(srt_path)}"
+                srt_cloud_url = upload_to_cloud_storage(srt_path, srt_cloud_path)
+                logger.info(f"Job {job_id}: Successfully uploaded SRT to cloud storage: {srt_cloud_url}")
+                response["srt_url"] = srt_cloud_url
+            except Exception as e:
+                logger.error(f"Job {job_id}: Failed to upload SRT to cloud storage: {str(e)}")
+                logger.error(f"Job {job_id}: {traceback.format_exc()}")
+                # Fall back to local file path if upload fails
+                response["srt_url"] = f"file://{srt_path}"
+        
+        # Add additional metadata
+        response["file_size"] = file_size
+        response["segments_count"] = len(enhanced_segments)
+        response["processing_details"] = {
+            "transcription": round(transcription_time, 2),
+            "enhancement": round(enhancement_time, 2),
+            "captioning": round(captioning_time, 2)
+        }
         
         logger.info(f"Job {job_id}: Script-enhanced auto-captioning completed successfully in {total_time:.2f} seconds")
         logger.info(f"Job {job_id}: Output video size: {file_size} bytes")
         
         return response
-        
+
     except Exception as e:
         logger.error(f"Job {job_id}: Error in script-enhanced auto-captioning: {str(e)}")
         logger.error(f"Job {job_id}: {traceback.format_exc()}")
