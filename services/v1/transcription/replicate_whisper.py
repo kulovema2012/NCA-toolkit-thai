@@ -117,45 +117,29 @@ def transcribe_with_replicate(audio_url: str, language: str = "th", batch_size: 
             logger.error("Replicate API token not found in environment variables")
             raise ValueError("Replicate API token not found. Please set REPLICATE_API_TOKEN environment variable.")
         
-        # Map language code to full language name if needed
-        if language in LANGUAGE_CODE_MAP:
-            language_name = LANGUAGE_CODE_MAP[language]
-        else:
-            # If not in map, use as is (might be full name already)
-            language_name = language
+        # Ensure the token has the correct format (Bearer prefix if needed)
+        if not api_key.startswith("Bearer "):
+            api_key = f"Bearer {api_key}"
         
-        logger.info(f"Using language: {language_name}")
+        # Use the correct model version from the curl example
+        model_version = "3ab86df6c8f54c11309d4d1f930ac292bad43ace52d10c80d87eb258b3c9f79c"
         
         # Prepare the API request to Replicate
         headers = {
-            "Authorization": f"Token {api_key}",
-            "Content-Type": "application/json"
+            "Authorization": api_key,
+            "Content-Type": "application/json",
+            "Prefer": "wait"  # This tells the API to wait for the prediction to complete
         }
-        
-        # Define the model and version
-        model = "openai/whisper"
-        version = "e39e354773466b955265e969568deb7da217804d8e771ea8c9cd0cef6591f8bc"
         
         # Prepare the API endpoint
         api_url = "https://api.replicate.com/v1/predictions"
         
-        # Prepare the request payload
+        # Prepare the request payload - using the exact format from the curl example
         payload = {
-            "version": version,
+            "version": model_version,
             "input": {
                 "audio": audio_url,
-                "model": "large-v2",
-                "transcription": "srt",
-                "translate": False,
-                "language": language_name,
-                "temperature": 0,
-                "patience": 1,
-                "suppress_tokens": "-1",
-                "condition_on_previous_text": True,
-                "temperature_increment_on_fallback": 0.2,
-                "compression_ratio_threshold": 2.4,
-                "logprob_threshold": -1.0,
-                "no_speech_threshold": 0.6
+                "batch_size": batch_size
             }
         }
         
@@ -166,59 +150,172 @@ def transcribe_with_replicate(audio_url: str, language: str = "th", batch_size: 
         response.raise_for_status()
         prediction = response.json()
         
-        logger.info(f"Prediction started: {prediction['id']}")
+        logger.info(f"Prediction started: {prediction.get('id', 'unknown')}")
         
-        # Poll for the prediction result
-        prediction_id = prediction["id"]
-        prediction_url = f"https://api.replicate.com/v1/predictions/{prediction_id}"
+        # Check if we need to poll for results
+        status = prediction.get("status")
+        output = prediction.get("output")
         
-        # Initialize polling variables
-        max_attempts = 60  # Maximum number of polling attempts
-        attempt = 0
-        poll_interval = 5  # Initial polling interval in seconds
-        
-        while attempt < max_attempts:
-            attempt += 1
+        # If the prediction is still processing, poll for results
+        if status == "processing" or output is None:
+            logger.info("Prediction is still processing, polling for results...")
             
-            # Get the prediction status
-            response = requests.get(prediction_url, headers=headers)
-            response.raise_for_status()
-            prediction = response.json()
+            # Set up polling parameters
+            max_polls = 60  # Maximum number of polling attempts
+            poll_interval = 5  # Seconds between polls
+            polls = 0
             
-            # Check if the prediction is complete
-            if prediction["status"] == "succeeded":
-                logger.info(f"Prediction succeeded after {attempt} attempts")
-                break
-            elif prediction["status"] == "failed":
-                logger.error(f"Prediction failed: {prediction.get('error', 'Unknown error')}")
-                raise ValueError(f"Replicate prediction failed: {prediction.get('error', 'Unknown error')}")
+            # Poll for results
+            while polls < max_polls:
+                # Wait before polling
+                time.sleep(poll_interval)
+                polls += 1
+                
+                # Make a GET request to check the status
+                poll_url = f"https://api.replicate.com/v1/predictions/{prediction['id']}"
+                poll_response = requests.get(poll_url, headers=headers)
+                
+                # Check if the request was successful
+                poll_response.raise_for_status()
+                
+                # Parse the response
+                poll_result = poll_response.json()
+                status = poll_result.get("status")
+                output = poll_result.get("output")
+                
+                logger.info(f"Poll {polls}/{max_polls}: Status = {status}")
+                
+                # If the prediction is complete, break the loop
+                if status == "succeeded" and output is not None:
+                    logger.info("Prediction completed successfully")
+                    prediction = poll_result
+                    break
+                
+                # If the prediction failed, raise an error
+                if status == "failed":
+                    error = poll_result.get("error")
+                    logger.error(f"Prediction failed: {error}")
+                    raise ValueError(f"Replicate prediction failed: {error}")
             
-            # If still processing, wait and try again
-            logger.info(f"Prediction status: {prediction['status']}. Polling again in {poll_interval} seconds...")
-            time.sleep(poll_interval)
+            # If we've exhausted our polling attempts, raise an error
+            if polls >= max_polls and (status != "succeeded" or output is None):
+                logger.error("Exceeded maximum polling attempts")
+                raise ValueError("Exceeded maximum polling attempts for Replicate prediction")
+        
+        # Process the output
+        if output is None:
+            logger.error("No output received from Replicate API")
+            raise ValueError("No output received from Replicate API")
+        
+        # Log the output structure to help with debugging
+        logger.info(f"Output type: {type(output)}")
+        if isinstance(output, dict):
+            logger.info(f"Output keys: {output.keys()}")
+        elif isinstance(output, list):
+            logger.info(f"Output is a list with {len(output)} items")
+            if output and isinstance(output[0], dict):
+                logger.info(f"First item keys: {output[0].keys()}")
+        
+        # Process the output to create segments
+        segments = []
+        
+        # Handle the Incredibly Fast Whisper output format
+        # The model returns a list of segments with text and timestamps
+        if isinstance(output, list):
+            logger.info(f"Processing list output with {len(output)} items")
             
-            # Increase polling interval for later attempts (up to 20 seconds)
-            poll_interval = min(poll_interval * 1.5, 20)
+            for item in output:
+                if isinstance(item, dict):
+                    # Extract the relevant information
+                    text = item.get("text", "").strip()
+                    start = item.get("start", 0)
+                    end = item.get("end", 0)
+                    
+                    # Skip empty segments
+                    if not text:
+                        continue
+                    
+                    # Create a segment
+                    segment = {
+                        "start": start,
+                        "end": end,
+                        "text": text
+                    }
+                    
+                    segments.append(segment)
         
-        # Check if we exceeded the maximum number of attempts
-        if attempt >= max_attempts:
-            logger.error("Exceeded maximum polling attempts")
-            raise ValueError("Exceeded maximum polling attempts for Replicate prediction")
+        # Handle the case where output is a dictionary with 'segments'
+        elif isinstance(output, dict) and "segments" in output:
+            logger.info(f"Processing dictionary output with 'segments' key")
+            
+            for segment in output["segments"]:
+                if isinstance(segment, dict):
+                    # Extract the relevant information
+                    text = segment.get("text", "").strip()
+                    start = segment.get("start", 0)
+                    end = segment.get("end", 0)
+                    
+                    # Skip empty segments
+                    if not text:
+                        continue
+                    
+                    # Create a segment
+                    segment_data = {
+                        "start": start,
+                        "end": end,
+                        "text": text
+                    }
+                    
+                    segments.append(segment_data)
         
-        # Extract the SRT content from the prediction output
-        srt_content = prediction["output"]
+        # Handle the case where output is a dictionary with 'chunks'
+        elif isinstance(output, dict) and "chunks" in output:
+            logger.info(f"Processing dictionary output with 'chunks' key")
+            
+            for chunk in output["chunks"]:
+                if isinstance(chunk, dict):
+                    # Extract the relevant information
+                    text = chunk.get("text", "").strip()
+                    timestamp = chunk.get("timestamp", [0, 0])
+                    
+                    # Skip empty chunks
+                    if not text:
+                        continue
+                    
+                    # Create a segment
+                    segment = {
+                        "start": timestamp[0] if isinstance(timestamp, list) and len(timestamp) > 0 else 0,
+                        "end": timestamp[1] if isinstance(timestamp, list) and len(timestamp) > 1 else 0,
+                        "text": text
+                    }
+                    
+                    segments.append(segment)
         
-        if not srt_content:
-            logger.error("No transcription output received from Replicate")
-            raise ValueError("No transcription output received from Replicate")
+        # Handle the case where output is a string (full transcription without timestamps)
+        elif isinstance(output, str):
+            logger.info(f"Processing string output (length: {len(output)})")
+            
+            # Check if it's an SRT format
+            if "\n\n" in output and "-->" in output:
+                logger.info("Detected SRT format in output string")
+                segments = parse_srt_content(output)
+            else:
+                # Create a single segment with the full text
+                segment = {
+                    "start": 0,
+                    "end": 60,  # Default to 60 seconds if no timing information
+                    "text": output.strip()
+                }
+                
+                segments.append(segment)
         
-        logger.info(f"Received SRT content from Replicate: {len(srt_content)} characters")
+        else:
+            logger.error(f"Unexpected output format: {output}")
+            raise ValueError(f"Unexpected output format from Replicate: {type(output)}")
         
-        # Parse the SRT content into segments
-        segments = parse_srt_content(srt_content)
+        logger.info(f"Processed {len(segments)} segments from Replicate output")
         
-        logger.info(f"Parsed {len(segments)} segments from SRT content")
-        
+        # Return the segments
         return segments
     
     except Exception as e:
