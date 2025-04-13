@@ -11,6 +11,32 @@ logger = logging.getLogger(__name__)
 # Default storage path
 STORAGE_PATH = "/tmp"
 
+def get_temp_file_path(prefix="", suffix="", directory=None):
+    """
+    Generate a temporary file path with optional prefix and suffix.
+    
+    Args:
+        prefix (str): Prefix for the filename
+        suffix (str): Suffix for the filename (e.g., file extension)
+        directory (str): Directory to store the file (defaults to STORAGE_PATH)
+    
+    Returns:
+        str: Path to the temporary file
+    """
+    if directory is None:
+        directory = STORAGE_PATH
+    
+    # Ensure the directory exists
+    if not os.path.exists(directory):
+        logger.info(f"Creating directory: {directory}")
+        os.makedirs(directory, exist_ok=True)
+    
+    # Generate a unique filename
+    filename = f"{prefix}{uuid.uuid4()}{suffix}"
+    
+    # Return the full path
+    return os.path.join(directory, filename)
+
 def download_file(url, target_path):
     """
     Download a file from a URL to a specific target path.
