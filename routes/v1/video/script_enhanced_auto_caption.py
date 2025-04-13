@@ -623,10 +623,10 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
                 
                 # Create a new SRT file with the delay and improved text wrapping
                 delayed_srt_path = create_srt_file(
-                    path=delayed_srt_path,
-                    segments=segments_from_srt,
-                    delay_seconds=subtitle_delay,
-                    max_chars_per_line=max_chars_per_line
+                    delayed_srt_path,
+                    segments_from_srt,
+                    subtitle_delay,
+                    max_chars_per_line
                 )
                 
                 logger.info(f"Created delayed SRT file with improved Thai text wrapping: {delayed_srt_path}")
