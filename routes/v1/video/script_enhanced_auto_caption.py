@@ -490,7 +490,8 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
         is_thai = is_thai_text(script_text) or language == "th"
         logger.info(f"Job {job_id}: Text detected as Thai: {is_thai}")
         
-        create_srt_file(enhanced_segments, srt_path, max_chars_per_line=max_chars_per_line, is_thai=is_thai)
+        # Call create_srt_file without the is_thai parameter since it's not supported
+        create_srt_file(enhanced_segments, srt_path, max_chars_per_line=max_chars_per_line)
         logger.info(f"Job {job_id}: SRT file created successfully")
         
         # Add subtitles to video
