@@ -479,16 +479,16 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
             
             # Get subtitle settings
             subtitle_settings = {
-                "font_name": data.get("font_name", "Arial"),
-                "font_size": data.get("font_size", 24),
-                "max_width": data.get("max_width", 40),
-                "margin_v": data.get("margin_v", 30),  # Add margin_v parameter
-                "line_color": data.get("line_color", "#FFFFFF"),
-                "outline_color": data.get("outline_color", "#000000"),
-                "back_color": data.get("back_color", "&H80000000"),
-                "alignment": data.get("alignment", 2),
-                "max_words_per_line": data.get("max_words_per_line", 15),
-                "subtitle_style": data.get("subtitle_style", "modern")
+                "font_name": settings.get("font_name", "Arial"),
+                "font_size": int(settings.get("font_size", 24)) if settings else 24,
+                "max_width": int(settings.get("max_width", 40)) if settings else 40,
+                "margin_v": int(settings.get("margin_v", 30)) if settings else 30,
+                "line_color": settings.get("line_color", "#FFFFFF") if settings else "#FFFFFF",
+                "outline_color": settings.get("outline_color", "#000000") if settings else "#000000",
+                "back_color": settings.get("back_color", "&H80000000") if settings else "&H80000000",
+                "alignment": int(settings.get("alignment", 2)) if settings else 2,
+                "max_words_per_line": int(settings.get("max_words_per_line", 15)) if settings else 15,
+                "subtitle_style": settings.get("subtitle_style", "modern") if settings else "modern"
             }
             
             # Call the enhanced subtitles function with the new signature
@@ -551,8 +551,8 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
                 delayed_ass_path = delayed_srt_path.replace('.srt', '.ass')
                 convert_srt_to_ass_for_thai(
                     srt_path=delayed_srt_path,
-                    font_name=subtitle_settings.get("font_name"),
-                    font_size=subtitle_settings.get("font_size"),
+                    font_name=settings.get("font_name"),
+                    font_size=settings.get("font_size"),
                     max_words_per_line=max_chars_per_line
                 )
                 
@@ -708,7 +708,7 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
         
         # Add additional metadata
         response["file_size"] = file_size
-        response["segments_count"] = len(enhanced_segments)
+        response["segments_count"] = len(segments)
         response["processing_details"] = {
             "transcription": round(transcription_time, 2),
             "enhancement": round(enhancement_time, 2),
