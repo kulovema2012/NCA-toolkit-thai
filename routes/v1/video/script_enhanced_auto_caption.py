@@ -479,16 +479,16 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
             
             # Get subtitle settings
             subtitle_settings = {
-                "font_name": settings_obj.get("font_name", "Arial"),
-                "font_size": settings_obj.get("font_size", 24),
-                "max_width": settings_obj.get("max_width", 40),
-                "margin_v": settings_obj.get("margin_v", 30),  # Add margin_v parameter
-                "line_color": settings_obj.get("line_color", "#FFFFFF"),
-                "outline_color": settings_obj.get("outline_color", "#000000"),
-                "back_color": settings_obj.get("back_color", "&H80000000"),
-                "alignment": settings_obj.get("alignment", 2),
-                "max_words_per_line": settings_obj.get("max_words_per_line", 15),
-                "subtitle_style": settings_obj.get("subtitle_style", "modern")
+                "font_name": data.get("font_name", "Arial"),
+                "font_size": data.get("font_size", 24),
+                "max_width": data.get("max_width", 40),
+                "margin_v": data.get("margin_v", 30),  # Add margin_v parameter
+                "line_color": data.get("line_color", "#FFFFFF"),
+                "outline_color": data.get("outline_color", "#000000"),
+                "back_color": data.get("back_color", "&H80000000"),
+                "alignment": data.get("alignment", 2),
+                "max_words_per_line": data.get("max_words_per_line", 15),
+                "subtitle_style": data.get("subtitle_style", "modern")
             }
             
             # Call the enhanced subtitles function with the new signature
