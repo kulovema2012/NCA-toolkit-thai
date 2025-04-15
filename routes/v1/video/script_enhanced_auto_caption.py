@@ -479,7 +479,7 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
             
             # Get subtitle settings
             subtitle_settings = {
-                "font_name": settings.get("font_name", "Arial"),
+                "font_name": settings.get("font_name") if settings and "font_name" in settings else ("Sarabun" if is_thai_text(script_text) or language.lower() == "th" else "Arial"),
                 "font_size": int(settings.get("font_size", 24)) if settings else 24,
                 "max_width": int(settings.get("max_width", 40)) if settings else 40,
                 "margin_v": int(settings.get("margin_v", 30)) if settings else 30,
@@ -502,7 +502,9 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
             logger.info(f"Generated subtitle files: SRT={srt_path}, ASS={ass_path}")
             
             # If Thai language and subtitle_delay is specified, create a new SRT file with the delay
-            if is_thai_text(script_text) and subtitle_delay > 0:
+            is_thai = language.lower() == "th" or (script_text and is_thai_text(script_text))
+            
+            if is_thai and subtitle_delay > 0:
                 logger.info(f"Thai text detected, applying subtitle delay of {subtitle_delay} seconds")
                 delayed_srt_path = os.path.join(os.path.dirname(srt_path), f"delayed_{os.path.basename(srt_path)}")
                 
@@ -568,6 +570,9 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
         
         # Add subtitles to video
         logger.info(f"Job {job_id}: Adding subtitles to video")
+        
+        # Check if the text is Thai
+        is_thai = language.lower() == "th" or (script_text and is_thai_text(script_text))
         
         # Extract subtitle styling parameters from settings
         font_name = settings.get("font_name", "Sarabun" if is_thai else "Arial")
