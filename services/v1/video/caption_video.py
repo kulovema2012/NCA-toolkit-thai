@@ -258,10 +258,6 @@ def convert_srt_to_ass_for_thai(srt_path, font_name=None, font_size=24, primary_
                         if not max_width:
                             max_width = 40  # Default max width for Thai
                         
-                        # Increase max_words_per_line for Thai to ensure more text is displayed
-                        if max_words_per_line < 10:
-                            max_words_per_line = 10  # Ensure we show more words per line for Thai
-                        
                         # Apply line breaks based on max_words_per_line or max_width
                         lines = []
                         current_line = ""
@@ -630,7 +626,7 @@ def process_srt_file(subtitle_path, max_words_per_line=7, is_thai=False):
         max_thai_chars_per_line = 20  # Further reduced from 25 to prevent horizontal overflow
         
         # Maximum words per line for Thai
-        thai_max_words_per_line = 2 if is_thai else max_words_per_line  # Reduced for Thai
+        thai_max_words_per_line = max_words_per_line  # Respect the user-provided setting
         
         # Add a small gap between subtitles to prevent blinking (250ms)
         gap_duration = timedelta(milliseconds=250)  # Increased from 200ms for better separation
