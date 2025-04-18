@@ -580,7 +580,6 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
         position = settings.get("position", "bottom")
         margin_v = settings.get("margin_v", 30)
         subtitle_style = settings.get("subtitle_style", "modern")
-        max_width = settings.get("max_width", None)
         line_color = settings.get("line_color", "white")
         word_color = settings.get("word_color", None)
         outline_color = settings.get("outline_color", "black")
@@ -592,58 +591,56 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
         italic = settings.get("italic", False)
         underline = settings.get("underline", False)
         strikeout = settings.get("strikeout", False)
-        shadow = settings.get("shadow", None)
-        outline = settings.get("outline", None)
-        back_color = settings.get("back_color", None)
+        shadow = settings.get("shadow", True)
+        outline = settings.get("outline", True)
+        back_color = settings.get("back_color", "&H80000000")
         margin_l = settings.get("margin_l", None)
         margin_r = settings.get("margin_r", None)
         encoding = settings.get("encoding", None)
         
-        # Adjust Y position if padding_top is applied
-        custom_y = y
-        if padding_top > 0 and custom_y is not None:
-            custom_y = int(custom_y) + padding_top
-            logger.info(f"Job {job_id}: Adjusted Y position to {custom_y} due to top padding")
+        # Custom Y position calculation for bottom position
+        custom_y = None
+        if y is not None:
+            custom_y = y
+        elif position == "bottom":
+            # Calculate a good position for bottom alignment
+            custom_y = 1080 - margin_v  # Assuming 1080p video
         
-        logger.info(f"Job {job_id}: Subtitle styling - font: {font_name}, size: {font_size}, position: {position}, style: {subtitle_style}")
-        
-        # Set output path
-        if output_path is None:
-            output_path = os.path.join(temp_dir, "output_video.mp4")
+        # Validate parameters against the function signature
+        valid_params = {
+            "video_path": video_path,
+            "subtitle_path": srt_path,
+            "output_path": output_path,
+            "font_name": font_name,
+            "font_size": font_size,
+            "position": position,
+            "margin_v": margin_v,
+            "subtitle_style": subtitle_style,
+            "line_color": line_color,
+            "word_color": word_color,
+            "outline_color": outline_color,
+            "all_caps": all_caps,
+            "max_words_per_line": max_chars_per_line,
+            "x": x,
+            "y": custom_y,
+            "alignment": alignment,
+            "bold": bold,
+            "italic": italic,
+            "underline": underline,
+            "strikeout": strikeout,
+            "shadow": shadow,
+            "outline": outline,
+            "back_color": back_color,
+            "margin_l": margin_l,
+            "margin_r": margin_r,
+            "encoding": encoding,
+            "job_id": job_id
+        }
         
         logger.info(f"Job {job_id}: Adding subtitles to video with output path: {output_path}")
         
         captioning_start_time = time.time()
-        output_video_path = add_subtitles_to_video(
-            video_path,
-            srt_path,
-            output_path=output_path,
-            font_name=font_name,
-            font_size=font_size,
-            position=position,
-            margin_v=margin_v,
-            subtitle_style=subtitle_style,
-            max_width=max_width,
-            line_color=line_color,
-            word_color=word_color,
-            outline_color=outline_color,
-            all_caps=all_caps,
-            max_words_per_line=max_chars_per_line,
-            x=x,
-            y=custom_y,
-            alignment=alignment,
-            bold=bold,
-            italic=italic,
-            underline=underline,
-            strikeout=strikeout,
-            shadow=shadow,
-            outline=outline,
-            back_color=back_color,
-            margin_l=margin_l,
-            margin_r=margin_r,
-            encoding=encoding,
-            job_id=job_id
-        )
+        output_video_path = add_subtitles_to_video(**valid_params)
         
         captioning_time = time.time() - captioning_start_time
         
