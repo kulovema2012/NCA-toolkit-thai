@@ -82,7 +82,6 @@ def add_subtitles_to_video(
     outline=True, 
     shadow=True, 
     border_style=1,
-    max_words_per_line=7,
     x=None,
     y=None,
     italic=False,
@@ -184,3 +183,71 @@ TypeError: add_subtitles_to_video() missing 1 required positional argument: 'out
 ```
 
 This means you're not providing a required parameter. Make sure all required parameters are included in your function call.
+
+### `add_subtitles_to_video` (as called from `script_enhanced_auto_caption.py`)
+
+**Note:** Due to runtime errors (`TypeError: unexpected keyword argument`), the call to `add_subtitles_to_video` from `script_enhanced_auto_caption.py` currently uses a subset of parameters, excluding `max_width` and `max_words_per_line`. This suggests a simpler version of the function might be executing in the deployed environment. The parameters passed are:
+
+```python
+{
+    "video_path": video_path,
+    "subtitle_path": srt_path, 
+    "output_path": output_path,
+    "font_size": font_size, # Default 24
+    "font_name": font_name, # Default "Sarabun"/"Arial"
+    "position": position, # Default "bottom"
+    "alignment": alignment, # Default "center" 
+    "margin_v": margin_v, # Default 30
+    "subtitle_style": subtitle_style, # Default "modern"
+    "line_color": line_color, # Default "white"
+    "outline_color": outline_color, # Default "black"
+    "back_color": back_color, # Default "&H80000000"
+    "word_color": word_color, # Default None
+    "all_caps": all_caps, # Default False
+    "outline": outline, # Default True
+    "shadow": shadow, # Default True
+    # "border_style": border_style, # Not explicitly passed, likely uses function default (1)
+    "x": x, # Default None
+    "y": custom_y, # Calculated or from settings
+    "bold": bold, # Default False
+    "italic": italic, # Default False
+    "underline": underline, # Default False
+    "strikeout": strikeout, # Default False
+    "margin_l": margin_l, # Default None
+    "margin_r": margin_r, # Default None
+    "encoding": encoding, # Default None
+    "job_id": job_id # Passed through
+}
+```
+
+### `process_script_enhanced_auto_caption`
+```python
+def add_subtitles_to_video(
+    video_path, 
+    subtitle_path, 
+    output_path, 
+    font_size=24, 
+    font_name="Arial", 
+    position="bottom", 
+    alignment=2, 
+    margin_v=30, 
+    subtitle_style="classic", 
+    line_color="white", 
+    outline_color="black", 
+    back_color=None, 
+    word_color=None, 
+    all_caps=False, 
+    outline=True, 
+    shadow=True, 
+    border_style=1,
+    x=None,
+    y=None,
+    italic=False,
+    underline=False,
+    strikeout=False,
+    margin_l=None,
+    margin_r=None,
+    encoding=None,
+    job_id=None
+)
+```
