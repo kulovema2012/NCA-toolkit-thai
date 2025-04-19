@@ -353,49 +353,25 @@ def script_enhanced_auto_caption():
         return jsonify({"status": "error", "message": f"Unexpected error: {str(e)}"}), 500
 
 def process_script_enhanced_auto_caption(video_url, script_text, language="en", settings=None, output_path=None, webhook_url=None, job_id=None, response_type="cloud", include_srt=False, min_start_time=0.0, subtitle_delay=0.0, max_chars_per_line=30, transcription_tool="openai_whisper", audio_url=""):
-    """
-    Process script-enhanced auto-captioning.
-    
-    Args:
-        video_url (str): URL of the video to caption
-        script_text (str): The voice-over script text
-        language (str, optional): Language code. Defaults to "en".
-        settings (dict, optional): Additional settings for captioning. Defaults to None.
-        output_path (str, optional): Output path for the captioned video. Defaults to None.
-        webhook_url (str, optional): Webhook URL for async processing. Defaults to None.
-        job_id (str, optional): Job ID for tracking. Defaults to None.
-        response_type (str, optional): Response type (local or cloud). Defaults to "cloud".
-        include_srt (bool, optional): Whether to include SRT file in response. Defaults to False.
-        min_start_time (float, optional): Minimum start time for subtitles
-        subtitle_delay (float, optional): Subtitle delay in seconds
-        max_chars_per_line (int, optional): Maximum characters per subtitle line
-        transcription_tool (str, optional): Transcription tool to use (replicate_whisper or openai_whisper)
-        audio_url (str, optional): Optional URL to an audio file to use for transcription instead of extracting from video
-        
-    Returns:
-        dict: Response with captioned video URL and metadata
-    """
     start_time = time.time()
+    job_id = job_id or f"script_enhanced_auto_caption_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    logger.info(f"Job {job_id}: Starting script-enhanced auto-captioning")
     
-    if job_id is None:
-        job_id = str(uuid.uuid4())
-    
-    logger.info(f"Job {job_id}: Starting script-enhanced auto-captioning process")
-    logger.info(f"Job {job_id}: Parameters - language: {language}, transcription_tool: {transcription_tool}")
-    logger.info(f"Job {job_id}: Script text length: {len(script_text)} characters")
-    
-    if settings is None:
-        settings = {}
-    
-    # Create a temporary directory for processing
-    temp_dir = tempfile.mkdtemp()
-    logger.info(f"Job {job_id}: Created temporary directory: {temp_dir}")
-    
+    temp_dir = None
+    downloaded_video_path = None
+    transcription_time = 0.0  # Initialize
+    enhancement_time = 0.0  # Initialize
+    upload_time = 0.0      # Initialize
+
     try:
+        # Create a temporary directory for processing
+        temp_dir = tempfile.mkdtemp()
+        logger.info(f"Job {job_id}: Created temporary directory: {temp_dir}")
+        
         # Download the video
         logger.info(f"Job {job_id}: Downloading video from {video_url}")
-        video_path = download_file(video_url, os.path.join(temp_dir, "input_video.mp4"))
-        logger.info(f"Job {job_id}: Video downloaded to {video_path}")
+        downloaded_video_path = download_file(video_url, os.path.join(temp_dir, "input_video.mp4"))
+        logger.info(f"Job {job_id}: Video downloaded to {downloaded_video_path}")
         
         # Check if we need to use a separate audio file for transcription
         audio_path = None
@@ -415,7 +391,7 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
         if padding_top > 0 or padding_bottom > 0 or padding_left > 0 or padding_right > 0:
             logger.info(f"Job {job_id}: Applying padding - top: {padding_top}, bottom: {padding_bottom}, left: {padding_left}, right: {padding_right}, color: {padding_color}")
             padded_video_path = apply_padding_to_video(
-                video_path,
+                downloaded_video_path,
                 padding_top=padding_top,
                 padding_bottom=padding_bottom,
                 padding_left=padding_left,
@@ -426,7 +402,7 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
             
             if padded_video_path:
                 logger.info(f"Job {job_id}: Padding applied successfully, new video path: {padded_video_path}")
-                video_path = padded_video_path
+                downloaded_video_path = padded_video_path
             else:
                 logger.warning(f"Job {job_id}: Failed to apply padding, using original video")
         
@@ -438,11 +414,11 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
         
         if transcription_tool == "replicate_whisper":
             logger.info(f"Job {job_id}: Using Replicate Whisper for transcription")
-            source_path = audio_path if audio_path else video_path
+            source_path = audio_path if audio_path else downloaded_video_path
             segments = transcribe_with_replicate(source_path, language=language)
         else:  # Default to OpenAI Whisper
             logger.info(f"Job {job_id}: Using OpenAI Whisper for transcription")
-            source_path = audio_path if audio_path else video_path
+            source_path = audio_path if audio_path else downloaded_video_path
             segments = transcribe_with_whisper(source_path, language=language)
         
         transcription_time = time.time() - transcription_start_time
@@ -584,11 +560,11 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
         
         # Combine all valid parameters for add_subtitles_to_video
         valid_params = {
-            "video_path": video_path,
+            "video_path": downloaded_video_path,
             "subtitle_path": ass_path, 
             "output_path": output_path, # Now guaranteed to be non-empty
         }
-        logger.info(f"Job {job_id}: Parameters for add_subtitles_to_video: {{'video_path': '{video_path}', 'subtitle_path': '{ass_path}', 'output_path': '{output_path}'}}")
+        logger.info(f"Job {job_id}: Parameters for add_subtitles_to_video: {{'video_path': '{downloaded_video_path}', 'subtitle_path': '{ass_path}', 'output_path': '{output_path}'}}")
 
         # Add subtitles to video using the generated ASS file
         output_video_path = add_subtitles_to_video(**valid_params)
@@ -610,9 +586,15 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
                     "file_url": output_video_path if response_type == "local" else f"/static/temp/{os.path.basename(output_video_path)}"
                 }
             ],
-            "run_time": round(total_time, 3),
-            "total_time": round(total_time, 3),
-            "transcription_tool": transcription_tool
+            "run_time": {
+                "download": round(0, 2),
+                "transcription": round(transcription_time, 2),
+                "enhancement": round(enhancement_time, 2),
+                "upload": round(upload_time, 2),
+                "total": round(total_time, 2)
+            },
+            "total_time": round(total_time, 3), # Keep overall total for compatibility
+            "transcription_tool": transcription_tool if not script_text else None # Indicate tool only if used
         }
         
         # If we need to upload to cloud storage
@@ -657,7 +639,7 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
         response["processing_details"] = {
             "transcription": round(transcription_time, 2),
             "enhancement": round(enhancement_time, 2),
-            "captioning": round(captioning_time, 2)
+            "captioning": round(total_time - transcription_time - enhancement_time, 2)
         }
         
         logger.info(f"Job {job_id}: Script-enhanced auto-captioning completed successfully in {total_time:.2f} seconds")
