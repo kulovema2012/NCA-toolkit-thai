@@ -568,6 +568,17 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
             logger.error(f"Error in enhanced subtitles generation: {str(e)}")
             raise ValueError(f"Enhanced subtitles generation error: {str(e)}")
         
+        # Ensure output_path is set, provide default if not
+        if not output_path:
+            output_filename = f"output_{job_id}.mp4"
+            output_path = os.path.join(temp_dir, output_filename)
+            logger.info(f"Job {job_id}: No output_path provided, using default: {output_path}")
+        else:
+            # Ensure the output directory exists if a path is provided
+            output_dir = os.path.dirname(output_path)
+            if output_dir:
+                os.makedirs(output_dir, exist_ok=True)
+
         # Add subtitles to video
         logger.info(f"Job {job_id}: Adding subtitles to video")
         
@@ -575,7 +586,7 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
         valid_params = {
             "video_path": video_path,
             "subtitle_path": ass_path, 
-            "output_path": output_path,
+            "output_path": output_path, # Now guaranteed to be non-empty
         }
         logger.info(f"Job {job_id}: Parameters for add_subtitles_to_video: {{'video_path': '{video_path}', 'subtitle_path': '{ass_path}', 'output_path': '{output_path}'}}")
 
