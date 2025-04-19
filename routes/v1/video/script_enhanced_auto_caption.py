@@ -571,83 +571,16 @@ def process_script_enhanced_auto_caption(video_url, script_text, language="en", 
         # Add subtitles to video
         logger.info(f"Job {job_id}: Adding subtitles to video")
         
-        # Check if the text is Thai
-        is_thai = language.lower() == "th" or (script_text and is_thai_text(script_text))
-        
-        # Extract subtitle styling parameters from settings
-        font_name = settings.get("font_name", "Sarabun" if is_thai else "Arial")
-        font_size = settings.get("font_size", 24)
-        position = settings.get("position", "bottom")
-        margin_v = settings.get("margin_v", 30)
-        subtitle_style = settings.get("subtitle_style", "modern")
-        line_color = settings.get("line_color", "white")
-        word_color = settings.get("word_color", None)
-        outline_color = settings.get("outline_color", "black")
-        all_caps = settings.get("all_caps", False)
-        x = settings.get("x", None)
-        y = settings.get("y", None)
-        alignment = settings.get("alignment", "center")
-        bold = settings.get("bold", False)
-        italic = settings.get("italic", False)
-        underline = settings.get("underline", False)
-        strikeout = settings.get("strikeout", False)
-        shadow = settings.get("shadow", True)
-        outline = settings.get("outline", True)
-        back_color = settings.get("back_color", "&H80000000")
-        margin_l = settings.get("margin_l", None)
-        margin_r = settings.get("margin_r", None)
-        encoding = settings.get("encoding", None)
-        
-        # Custom Y position calculation for bottom position
-        custom_y = None
-        if y is not None:
-            custom_y = y
-        elif position == "bottom":
-            # Calculate a good position for bottom alignment
-            custom_y = 1080 - margin_v  # Assuming 1080p video
-        
-        # Validate parameters against the function signature
+        # Combine all valid parameters for add_subtitles_to_video
         valid_params = {
             "video_path": video_path,
-            "subtitle_path": srt_path,
+            "subtitle_path": ass_path, 
             "output_path": output_path,
-            "font_name": font_name,
-            "font_size": font_size,
-            "position": position,
-            "margin_v": margin_v,
-            "subtitle_style": subtitle_style,
-            "line_color": line_color,
-            "word_color": word_color,
-            "outline_color": outline_color,
-            "all_caps": all_caps,
-            "x": x,
-            "y": custom_y,
-            "alignment": alignment,
-            "bold": bold,
-            "italic": italic,
-            "underline": underline,
-            "strikeout": strikeout,
-            "shadow": shadow,
-            "outline": outline,
-            "back_color": back_color,
-            "margin_l": margin_l,
-            "margin_r": margin_r,
-            "encoding": encoding,
-            "job_id": job_id
         }
-        
-        logger.info(f"Job {job_id}: Adding subtitles to video with output path: {output_path}")
-        
-        captioning_start_time = time.time()
+        logger.info(f"Job {job_id}: Parameters for add_subtitles_to_video: {{'video_path': '{video_path}', 'subtitle_path': '{ass_path}', 'output_path': '{output_path}'}}")
+
+        # Add subtitles to video using the generated ASS file
         output_video_path = add_subtitles_to_video(**valid_params)
-        
-        captioning_time = time.time() - captioning_start_time
-        
-        if not output_video_path or not os.path.exists(output_video_path):
-            logger.error(f"Job {job_id}: Failed to add subtitles to video")
-            return {"error": "Failed to add subtitles to video"}
-        
-        logger.info(f"Job {job_id}: Subtitles added successfully in {captioning_time:.2f} seconds")
         
         # Get file size
         file_size = os.path.getsize(output_video_path)
