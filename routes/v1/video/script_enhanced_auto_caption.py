@@ -141,7 +141,7 @@ def script_enhanced_auto_caption():
         logger.debug(f"Received request data: {json.dumps(data, indent=2)}")
         
         # Validate required parameters
-        required_params = ["video_url", "script_text"]
+        required_params = ["video_url"]
         for param in required_params:
             if param not in data:
                 logger.error(f"Missing required parameter: {param}")
@@ -149,7 +149,7 @@ def script_enhanced_auto_caption():
         
         # Extract parameters
         video_url = data.get("video_url")
-        script_text = data.get("script_text")
+        script_text = data.get("script_text") # Make optional using .get()
         language = data.get("language", "en")  # Default to English
         output_path = data.get("output_path", "")
         webhook_url = data.get("webhook_url", "")
@@ -323,7 +323,7 @@ def script_enhanced_auto_caption():
         try:
             result = process_script_enhanced_auto_caption(
                 video_url=video_url,
-                script_text=script_text,
+                script_text=script_text, # Pass the value (can be None)
                 language=language,
                 settings=styling_params,
                 output_path=output_path,
